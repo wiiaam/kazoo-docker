@@ -11,7 +11,13 @@
             <param name="apply-nat-acl" value="rfc1918.auto"/>
             <param name="apply-inbound-acl" value="trusted"/>
             <param name="apply-proxy-acl" value="authoritative"/>
-            <param name="local-network-acl" value="localnet.auto"/>
+            <!-- Peers arrive through Docker Desktop's SNAT (source 172.21.0.0/16,
+                 the compose bridge gateway), so localnet.auto classifies them as
+                 "local" and FS advertises its internal rtp-ip in SDP, which the
+                 phones can never reach.  Narrow local-network-acl to loopback so
+                 FS advertises ext-sip-ip/ext-rtp-ip (the host-reachable public
+                 address) instead. -->
+            <param name="local-network-acl" value="127.0.0.0/8"/>
             <!--<param name="apply-register-acl" value="domains"/>-->
 
             <param name="accept-blind-auth" value="true"/>

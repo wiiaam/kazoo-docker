@@ -157,13 +157,34 @@ patch_subst AMQP_HOST        "$RABBIT_HOST"          "$LOCAL_CFG"
 grep -q '!MY_EXT_IP_ADDRESS!' "$LOCAL_CFG" || \
     printf '\n#!substdef "!MY_EXT_IP_ADDRESS!%s!g"\n' "$MY_EXT_IP_ADDRESS" >>"$LOCAL_CFG"
 patch_subst MY_EXT_IP_ADDRESS "$MY_EXT_IP_ADDRESS" "$LOCAL_CFG"
+# Inject the concrete IP into the advertise value: a substdef's value only
+# substitutes tokens defined BEFORE it, so advertising the bare token
+# MY_EXT_IP_ADDRESS (whose substdef is appended near the end of local.cfg)
+# would leave the literal token in Via/Record-Route.  Use the resolved
+# address directly instead.
 for _port in 5060 7000; do
     sed -i \
-        -e "s#\!UDP_SIP\!udp:MY_IP_ADDRESS:${_port}\!g#\!UDP_SIP\!udp:MY_IP_ADDRESS:${_port} advertise MY_EXT_IP_ADDRESS:${_port}\!g#" \
-        -e "s#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port}\!g#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port} advertise MY_EXT_IP_ADDRESS:${_port}\!g#" \
+        -e "s#\!UDP_SIP\!udp:MY_IP_ADDRESS:${_port}\!g#\!UDP_SIP\!udp:MY_IP_ADDRESS:${_port} advertise ${MY_EXT_IP_ADDRESS}:${_port}\!g#" \
+        -e "s#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port}\!g#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port} advertise ${MY_EXT_IP_ADDRESS}:${_port}\!g#" \
         "$LOCAL_CFG" || true
 done
 log "advertising ${MY_EXT_IP_ADDRESS} on kamailio listen sockets"
+
+# Docker Desktop SNATs host-originated SIP into the compose bridge, so phones
+# appear to arrive from a 172.21.0.0/16 proxy address.  The TCP flow kamailio
+# reuses for in-dialog BYE/ACK therefore has its local socket bound to the
+# container address (MY_IP_ADDRESS) while Via/Record-Route advertise the
+# external MY_EXT_IP_ADDRESS.  With tcp_accept_aliases=no, the connection
+# lookup that feeds t_relay fails to match the existing flow (local IP differs
+# from the advertised dst) and in-dialog requests die with 481 "Call/
+# Transaction Does Not Exist" -- the phones never get the ACK to the 200 OK
+# and FreeSWITCH tears the call down with 408 ACK Timeout.  Enabling it lets
+# kamailio reuse the established flow for in-dialog messages, the same way
+# out-of-dialog routing already does via +sip.instance.  default.cfg owns the
+# value and is included after local.cfg, so patch it directly (idempotent).
+DEFAULT_CFG="$(dirname "$CONF")/default.cfg"
+sed -i 's#^tcp_accept_aliases = no$#tcp_accept_aliases = yes#' "$DEFAULT_CFG"
+log "tcp_accept_aliases enabled (reuse flow TCP for in-dialog requests)"
 
 # ---------------------------------------------------------------- database
 wait_for_pg
