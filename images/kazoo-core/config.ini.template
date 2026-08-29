@@ -1,0 +1,30 @@
+; section are between [] = [section]
+; key = value
+; to comment add ";" in front of the line
+[amqp]
+uri = amqp://${RABBIT_USER}:${RABBIT_PASS}@${RABBIT_HOST}:5672
+
+[bigcouch]
+compact_automatically = true
+cookie = ${ERLANG_COOKIE}
+ip = "${COUCH_HOST}"
+port = 5984
+username = "${COUCH_USER}"
+password = "${COUCH_PASS}"
+; "admin port" (CouchDB 2.x cluster mgmt) is vestigial in kazoo-classic 4.3:
+; _dbs/_users/_nodes are classified 'external' in kzs_util and nothing opens
+; them, so the admin connection is never used. CouchDB 3.x has no 5986
+; listener anyway -- keeping it equal to `port` means any residual admin-db
+; request still hits the real CouchDB on 5984.
+admin_port = 5984
+
+[kazoo_apps]
+cookie = ${ERLANG_COOKIE}
+
+[ecallmgr]
+cookie = ${ERLANG_COOKIE}
+
+[log]
+syslog = info
+console = notice
+file = error

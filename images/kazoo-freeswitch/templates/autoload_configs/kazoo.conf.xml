@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration name="kazoo.conf" description="General purpose Erlang C-node produced to better fit the Kazoo project">
+    <!-- KZ_AMQP_* are injected at runtime by entrypoint.sh through
+         FreeSWITCH's env-set pre-processor. mod_kazoo reads these variables
+         for its own direct AMQP channel (in parallel with the Erlang dist
+         channel via ecallmgr). -->
+    <X-PRE-PROCESS cmd="env-set" data="kz_amqp_host=$KZ_AMQP_HOST"/>
+    <X-PRE-PROCESS cmd="env-set" data="kz_amqp_port=$KZ_AMQP_PORT"/>
+    <X-PRE-PROCESS cmd="env-set" data="kz_amqp_vhost=$KZ_AMQP_VHOST"/>
+    <X-PRE-PROCESS cmd="env-set" data="kz_amqp_user=$KZ_AMQP_USER"/>
+    <X-PRE-PROCESS cmd="env-set" data="kz_amqp_pass=$KZ_AMQP_PASS"/>
+    <X-PRE-PROCESS cmd="env-set" data="kz_amqp_zone=$KZ_AMQP_ZONE"/>
+
+    <settings>
+        <param name="listen-ip" value="0.0.0.0" />
+        <param name="listen-port" value="KAZOO_PORT" />
+        <param name="cookie" value="KAZOO_COOKIE" />
+        <param name="shortname" value="false" />
+        <param name="nodename" value="KAZOO_NODENAME" />
+        <!-- legacy-events: mod_kazoo must emit the classic positional 7-tuple
+             {fetch, Section, Tag, Key, Value, ID, Data} fetch events; without
+             it, kazoo-classic's ecallmgr only sees modern 2-tuples and every
+             fetch lands in the "unhandled message" catch-all (never answered). -->
+        <param name="legacy-events" value="true" />
+        <param name="expand-headers-on-fetch" value="true" />
+
+        <param name="event-stream-preallocate" value="32768" />
+        <param name="receive-msg-preallocate" value="32768" />
+        <param name="node-worker-threads" value="5" />
+        <param name="receive-timeout" value="1" />
+        <param name="event-stream-framing" value="2" />
+    </settings>
+
+    <tweaks default="false"/>
+
+</configuration>

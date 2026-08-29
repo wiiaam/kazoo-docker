@@ -1,0 +1,214 @@
+# Kazoo Classic 4.3 single-node bridge-network stack (local smoke/dev harness;
+# Kubernetes is the production target -- node names come from the dotted
+# container hostnames below, which map 1:1 to k8s hostname/subdomain).
+#
+# Required env: see .env.example. `cp .env.example .env` then edit secrets.
+name: kazoo
+
+x-kazoo-core-env: &kazoo-core-env
+  ERLANG_COOKIE: ${ERLANG_COOKIE}
+  RABBIT_HOST: rabbitmq
+  RABBIT_USER: ${RABBIT_USER}
+  RABBIT_PASS: ${RABBIT_PASS}
+  COUCH_HOST: couchdb
+  COUCH_USER: ${COUCHDB_USER}
+  COUCH_PASS: ${COUCHDB_PASSWORD}
+
+services:
+  couchdb:
+    image: couchdb:3.2.3
+    hostname: couchdb.kazoo
+    environment:
+      COUCHDB_USER: ${COUCHDB_USER}
+      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+      COUCHDB_SECRET: ${COUCHDB_SECRET}
+    volumes:
+      - couchdb-data:/opt/couchdb/data
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://127.0.0.1:5984/_up || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [ kazoo ]
+
+  rabbitmq:
+    image: rabbitmq:3.13.7-management
+    hostname: rabbitmq.kazoo
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: [ "CMD-SHELL", "rabbitmq-diagnostics -q ping || exit 1" ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 60s
+    networks: [ kazoo ]
+
+  postgres:
+    image: postgres:13
+    hostname: postgres.kazoo
+    environment:
+      POSTGRES_DB: kazoo
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    command: [ "postgres", "-c", "max_connections=1000" ]
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d kazoo || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks: [ kazoo ]
+
+  kazoo-apps:
+    build: ./images/kazoo-core
+    image: kazoo-core:local
+    hostname: kazoo-apps.kazoo
+    environment:
+      <<: *kazoo-core-env
+      KAZOO_NODE: kazoo_apps
+      # Bootstrap provisioning: entrypoint backgrounds the node, waits for it,
+      # then runs /kazoo-init.sh (see images/kazoo-core/entrypoint.sh).
+      KAZOO_BOOTSTRAP: /kazoo-init.sh
+      MASTER_ACCOUNT_NAME: ${MASTER_ACCOUNT_NAME}
+      MASTER_REALM: ${MASTER_REALM}
+      MASTER_USER: ${MASTER_USER}
+      MASTER_PASS: ${MASTER_PASS}
+      # Base URL baked into each registered Monster-UI app's "api_url"; the
+      # browser uses THAT (not config.js) for app API calls, so it must be
+      # host-reachable, never the docker-internal service name.
+      CROSSBAR_API_URL: http://localhost:8000/v2
+    volumes:
+      # Monster UI copies its app metadata here; kazoo-init.sh registers the
+      # apps with Crossbar once /shared/.ready appears.
+      - shared:/shared
+    ports:
+      # Publish Crossbar so a browser on the host can reach the API
+      # (Monster-UI's API_URL must be host-resolvable, i.e. not "kazoo-apps").
+      - "8000:8000"
+    depends_on:
+      couchdb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/kazoo/bin/sup -n $${KAZOO_NODE} kz_nodes status || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    networks: [ kazoo ]
+
+  monster-ui:
+    build: ./images/monster-ui
+    image: kazoo-monster-ui:local
+    hostname: monster-ui.kazoo
+    environment:
+      WHITELABEL_NAME: ${WHITELABEL_NAME}
+      APPLICATION_TITLE: ${APPLICATION_TITLE}
+    volumes:
+      - shared:/shared
+    ports:
+      - "8080:80"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1/ping >/dev/null || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks: [ kazoo ]
+
+  ecallmgr:
+    image: kazoo-core:local
+    hostname: ecallmgr.kazoo
+    environment:
+      <<: *kazoo-core-env
+      KAZOO_NODE: ecallmgr
+    depends_on:
+      kazoo-apps:
+        condition: service_healthy
+    networks: [ kazoo ]
+
+  kamailio:
+    build: ./images/kamailio
+    image: kazoo-kamailio:local
+    hostname: kamailio.kazoo
+    environment:
+      DOMAIN: ${MASTER_REALM}
+      HOST_PUBLIC_IP: ${KAMAILIO_PUBLIC_IP:-127.0.0.1}
+      RABBIT_HOST: rabbitmq
+      RABBIT_USER: ${RABBIT_USER}
+      RABBIT_PASS: ${RABBIT_PASS}
+      PG_HOST: postgres
+      PG_USER: ${POSTGRES_USER}
+      PG_PASSWORD: ${POSTGRES_PASSWORD}
+      FREESWITCH_SIP_ADDRESS: freeswitch:11000
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [ kazoo ]
+
+  freeswitch:
+    build:
+      context: ./images/kazoo-freeswitch
+    image: kazoo-freeswitch:local
+    hostname: freeswitch.kazoo
+    environment:
+      ERLANG_COOKIE: ${ERLANG_COOKIE}
+      RABBIT_USER: ${RABBIT_USER}
+      RABBIT_PASS: ${RABBIT_PASS}
+      KZ_AMQP_HOST: rabbitmq
+      KZ_AMQP_VHOST: /
+      KZ_AMQP_ZONE: local
+      # Advertised RTP IP (SDP c=/media lines) -- reachable address on the
+      # machine hosting Docker Desktop; the RTP range below is published to it.
+      EXT_RTP_IP: ${FS_PUBLIC_IP:-192.168.1.188}
+      # Advertised SIP address (Contact/Message header in FS replies) and the
+      # port SIP is published on so phones can send in-dialog requests back.
+      KAZOO_LOCAL_ADDRESS: ${FS_PUBLIC_IP:-192.168.1.188}
+      # Clamp the RTP range so only a small UDP slice needs publishing.
+      RTP_START_PORT: 16384
+      RTP_END_PORT: 16512
+    ports:
+      - "11000:11000/udp"
+      - "11000:11000/tcp"
+      - "16384-16512:16384-16512/udp"
+    volumes:
+      - freeswitch-data:/var/lib/kazoo-freeswitch
+      - freeswitch-log:/var/log/freeswitch
+    depends_on:
+      ecallmgr:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "test -f /var/run/freeswitch/freeswitch.pid && /usr/local/freeswitch/bin/freeswitch -version >/dev/null || exit 1" ]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks: [ kazoo ]
+
+volumes:
+  couchdb-data:
+  rabbitmq-data:
+  postgres-data:
+  freeswitch-data:
+  freeswitch-log:
+  shared:
+
+networks:
+  kazoo:
+    name: kazoo
+    driver: bridge

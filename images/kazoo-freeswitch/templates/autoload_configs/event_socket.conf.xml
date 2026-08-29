@@ -1,0 +1,13 @@
+<configuration name="event_socket.conf" description="Socket Client">
+    <settings>
+        <param name="nat-map" value="false"/>
+        <param name="listen-ip" value="EVENT_BIND_IP"/>
+        <param name="listen-port" value="EVENT_PORT"/>
+        <param name="password" value="ClueCon"/>
+        <!-- ecallmgr drives FreeSWITCH through this ESL socket (Kazoo's
+             default FS password is ClueCon), so it must be reachable over
+             the bridge network, not just loopback: EVENT_BIND_IP defaults
+             to 0.0.0.0 in entrypoint.sh. -->
+        <param name="apply-inbound-acl" value="any"/>
+    </settings>
+</configuration>
