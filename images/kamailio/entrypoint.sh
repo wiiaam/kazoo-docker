@@ -3,7 +3,11 @@ set -e
 
 # ---------------------------------------------------------------- defaults
 : "${DOMAIN:=localhost}"
-: "${HOST_PUBLIC_IP:=127.0.0.1}"
+# What kamailio advertises in Via/Contact/Record-Route -- the address other
+# SIP UAs (phones, FreeSWITCH) will actually try to reach. Must be a real,
+# routable address for whoever is calling in; 127.0.0.1 only works for
+# same-host testing.
+: "${ADVERTISE_IP:=127.0.0.1}"
 : "${RABBIT_USER:=guest}"
 : "${RABBIT_PASS:=guest}"
 : "${RABBIT_HOST:=rabbitmq}"
@@ -20,7 +24,7 @@ set -e
 CONF="/etc/kazoo/kamailio/kamailio.cfg"
 LOCAL_CFG="/etc/kazoo/kamailio/local.cfg"
 DB_SCRIPT="/etc/kazoo/kamailio/db_scripts/kamailio_initdb_postgres.sql"
-: "${RABBIT_VHOST:=/}"
+
 KZAMQP_BASE="amqp://${RABBIT_USER}:${RABBIT_PASS}@${RABBIT_HOST}:5672"
 if [ -n "$RABBIT_VHOST" ] && [ "$RABBIT_VHOST" != "/" ]; then
     KZAMQP_URI="${KZAMQP_BASE}/${RABBIT_VHOST}"
@@ -33,32 +37,30 @@ PG_URL="postgres://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB}"
 log() { printf '[kamailio] %s\n' "$*"; }
 
 # Escape sed replacement metacharacters so user-supplied values are safe.
-# Replacement is '.'-delimited, so we escape '.' and GNU sed's specials.
 sed_escape() {
     printf '%s' "$1" | sed 's/[&\\|#]/\\&/g'
 }
 
-# Set one kamailio #!substdef, activating it if it ships commented.  The kazoo
-# templates comment the toggleable lines as "# # #!substdef ..." (remove all
-# but the last '#' to enable), so we first uncomment the line that defines the
-# token, then rewrite its value:
+# Set one kamailio #!substdef, activating it if it ships commented. Vendor
+# templates ship toggleable lines as "# # #!substdef ..." (strip all but the
+# last '#' to enable):
 #
 #   # # #!substdef "!MY_HOSTNAME!kamailio.2600hz.com!g"
 #   ->  #!substdef "!MY_HOSTNAME!<value>!g"
 #
-# Idempotent: the value between the trailing '!' delimiters is replaced
-# regardless of what it currently is.  Assume values contain no '!' (the
-# substdef syntax itself cannot represent a literal '!' in the value).
+# Idempotent: replaces the value between the trailing '!' delimiters
+# regardless of what's currently there. Assumes values contain no '!'.
+#
+# NOTE: token names here (MY_HOSTNAME, MY_IP_ADDRESS, etc.) are Kamailio's
+# own vendor config tokens from Kazoo Classic's local.cfg template -- not
+# something this script invented. Renaming them would mean patching the
+# .cfg templates themselves, not just this script.
 patch_subst() {
     token="$1"
     value="$2"
     file="$3"
     escaped_value=$(sed_escape "$value")
-    # activate: strip comment markers from the line that defines this token,
-    # keeping the final '#' so the directive stays "#!substdef ..."
     sed -i -E "/!${token}!/{s/^([ #]+)#!/#!/;}" "$file" || true
-    # set value: replace everything from the token through the next '!' with
-    # the token + new value, leaving the trailing "!g" intact
     sed -i -E "s#(!${token}!)[^!]*#\1${escaped_value}#" "$file" || true
 }
 
@@ -76,11 +78,11 @@ wait_for_pg() {
 }
 
 # The initdb dump (kamailio_initdb_postgres.sql) is a pg_dump of a 12.7
-# database: its ALTER TABLE ... OWNER TO kamailio clauses require a login role
-# named "kamailio", and psql needs an existing target database.  Bootstrap
-# both idempotently before loading the dump.  PG_USER here is a superuser
-# (compose maps it to POSTGRES_USER), which is all CREATE ROLE/DATABASE
-# require.
+# database: its ALTER TABLE ... OWNER TO kamailio clauses require a login
+# role named "kamailio", and psql needs an existing target database.
+# Bootstrap both idempotently before loading the dump. PG_USER here is a
+# superuser (compose maps it to POSTGRES_USER), which is all CREATE
+# ROLE/DATABASE require.
 ensure_pg_role_db() {
     if ! PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres \
             -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'kamailio';" | grep -q 1; then
@@ -106,82 +108,77 @@ ensure_schema() {
     fi
 }
 
+# setid 1 -> freeswitch media server. Always reconcile to exactly the
+# current FREESWITCH_SIP_ADDRESS so a stale row from a previous run (old
+# container IP, old hostname) never sits alongside the current one --
+# duplicate rows pointing at "the same" destination under different
+# addresses caused 480/482 "merged" responses and call loops.
 seed_dispatcher() {
-    # setid 1 -> freeswitch media server.  Prune any stale rows left over from
-    # earlier runs (old container/IP values) then (re)insert the canonical
-    # destination so dispatcher never sees two rows pointing at the same FS
-    # (that caused 480/482 "merged" responses and call loops).
     PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" \
         -v ON_ERROR_STOP=1 -c \
         "DELETE FROM dispatcher WHERE setid=1 AND destination <> 'sip:$FREESWITCH_SIP_ADDRESS';
          INSERT INTO dispatcher (setid,destination,flags,priority,attrs,description)
          VALUES (1,'sip:$FREESWITCH_SIP_ADDRESS',0,0,'','freeswitch')
          ON CONFLICT DO NOTHING;"
-    PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" \
-        -v ON_ERROR_STOP=1 -c "DELETE FROM dispatcher WHERE setid <> 1 AND destination::text LIKE 'sip:172.21.%:11000';"
     log "dispatcher setid=1 -> sip:$FREESWITCH_SIP_ADDRESS"
 }
 
 # ---------------------------------------------------------------- config
 log "patching $LOCAL_CFG"
-# MY_IP_ADDRESS selects the interface kamailio binds to; inside the compose
-# network that must be a real container address (HOST_PUBLIC_IP from the host
-# is not assigned to this container).  MY_EXT_IP_ADDRESS is what gets
-# advertised in Via/Contact/Record-Route headers.  The compose stack maps
-# KAMAILIO_PUBLIC_IP into HOST_PUBLIC_IP; fall back to the container address
-# when it's unset or still the compose default (127.0.0.1).
-MY_CONTAINER_IP="$(hostname -i 2>/dev/null | awk '{print $1}')"
-: "${MY_CONTAINER_IP:=$HOST_PUBLIC_IP}"
-: "${MY_EXT_IP_ADDRESS:=$HOST_PUBLIC_IP}"
-: "${MY_EXT_IP_ADDRESS:=$MY_CONTAINER_IP}"
-if [ "$MY_EXT_IP_ADDRESS" = "127.0.0.1" ]; then
-    MY_EXT_IP_ADDRESS="$MY_CONTAINER_IP"
-fi
-patch_subst MY_HOSTNAME      "$DOMAIN"               "$LOCAL_CFG"
-patch_subst MY_IP_ADDRESS    "$MY_CONTAINER_IP"      "$LOCAL_CFG"
-patch_subst MY_EXT_IP_ADDRESS "$MY_EXT_IP_ADDRESS"   "$LOCAL_CFG"
-patch_subst MY_AMQP_URL      "$KZAMQP_URI"           "$LOCAL_CFG"
-patch_subst KAMAILIO_DBMS    "postgres"              "$LOCAL_CFG"
-patch_subst KAZOO_DB_URL     "$PG_URL"               "$LOCAL_CFG"
-# AMQP creds also appear as raw substdefs in some config versions
-patch_subst AMQP_USER        "$RABBIT_USER"          "$LOCAL_CFG"
-patch_subst AMQP_PASSWORD    "$RABBIT_PASS"          "$LOCAL_CFG"
-patch_subst AMQP_HOST        "$RABBIT_HOST"          "$LOCAL_CFG"
 
-# Phones on the LAN cannot route to kamailio's docker-bridge address, so the
-# Via/Contact/Record-Route must advertise an address reachable from the host
-# or in-dialog requests (BYE/ACK) from the phones get dropped.  Add `advertise`
-# to the plaintext UDP/TCP listeners (5060 SIP + 7000 media/alg) so kamailio
-# presents MY_EXT_IP_ADDRESS in those headers.
-[ -n "$MY_EXT_IP_ADDRESS" ] || MY_EXT_IP_ADDRESS="$MY_CONTAINER_IP"
+# BIND_IP is the address kamailio listens on inside its own network
+# namespace (container/pod IP) -- not necessarily reachable by anyone else.
+# ADVERTISE_IP is what gets put in Via/Contact/Record-Route so remote UAs
+# know where to actually send packets back. These are the same value only
+# when kamailio is directly reachable at its own bind address (e.g. host
+# networking, or a macvlan/real LAN IP) -- behind any NAT, LB, or bridged
+# network they differ, and getting ADVERTISE_IP wrong is what breaks
+# in-dialog requests (ACK/BYE) since those route using the advertised
+# Contact, not the original bind address.
+BIND_IP="$(hostname -i 2>/dev/null | awk '{print $1}')"
+: "${BIND_IP:=$ADVERTISE_IP}"
+if [ "$ADVERTISE_IP" = "127.0.0.1" ]; then
+    ADVERTISE_IP="$BIND_IP"
+fi
+
+patch_subst MY_HOSTNAME       "$DOMAIN"       "$LOCAL_CFG"
+patch_subst MY_IP_ADDRESS     "$BIND_IP"      "$LOCAL_CFG"
+patch_subst MY_EXT_IP_ADDRESS "$ADVERTISE_IP" "$LOCAL_CFG"
+patch_subst MY_AMQP_URL       "$KZAMQP_URI"   "$LOCAL_CFG"
+patch_subst KAMAILIO_DBMS     "postgres"      "$LOCAL_CFG"
+patch_subst KAZOO_DB_URL      "$PG_URL"       "$LOCAL_CFG"
+patch_subst AMQP_USER         "$RABBIT_USER"  "$LOCAL_CFG"
+patch_subst AMQP_PASSWORD     "$RABBIT_PASS"  "$LOCAL_CFG"
+patch_subst AMQP_HOST         "$RABBIT_HOST"  "$LOCAL_CFG"
+
+# Callers can't route to BIND_IP when it isn't their externally-reachable
+# address, so the plaintext UDP/TCP listeners need an explicit `advertise`
+# clause -- without it, Via/Contact/Record-Route would carry BIND_IP instead
+# of ADVERTISE_IP and in-dialog requests (ACK/BYE) from real clients get
+# dropped.
 grep -q '!MY_EXT_IP_ADDRESS!' "$LOCAL_CFG" || \
-    printf '\n#!substdef "!MY_EXT_IP_ADDRESS!%s!g"\n' "$MY_EXT_IP_ADDRESS" >>"$LOCAL_CFG"
-patch_subst MY_EXT_IP_ADDRESS "$MY_EXT_IP_ADDRESS" "$LOCAL_CFG"
-# Inject the concrete IP into the advertise value: a substdef's value only
-# substitutes tokens defined BEFORE it, so advertising the bare token
-# MY_EXT_IP_ADDRESS (whose substdef is appended near the end of local.cfg)
-# would leave the literal token in Via/Record-Route.  Use the resolved
-# address directly instead.
+    printf '\n#!substdef "!MY_EXT_IP_ADDRESS!%s!g"\n' "$ADVERTISE_IP" >>"$LOCAL_CFG"
+patch_subst MY_EXT_IP_ADDRESS "$ADVERTISE_IP" "$LOCAL_CFG"
 for _port in 5060 7000; do
     sed -i \
-        -e "s#\!UDP_SIP\!udp:MY_IP_ADDRESS:${_port}\!g#\!UDP_SIP\!udp:MY_IP_ADDRESS:${_port} advertise ${MY_EXT_IP_ADDRESS}:${_port}\!g#" \
-        -e "s#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port}\!g#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port} advertise ${MY_EXT_IP_ADDRESS}:${_port}\!g#" \
+        -e "s#\!UDP_SIP\!udp:MY_IP_ADDRESS:${_port}\!g#\!UDP_SIP\!udp:MY_IP_ADDRESS:${_port} advertise ${ADVERTISE_IP}:${_port}\!g#" \
+        -e "s#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port}\!g#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port} advertise ${ADVERTISE_IP}:${_port}\!g#" \
         "$LOCAL_CFG" || true
 done
-log "advertising ${MY_EXT_IP_ADDRESS} on kamailio listen sockets"
+log "advertising ${ADVERTISE_IP} on kamailio listen sockets"
 
-# Docker Desktop SNATs host-originated SIP into the compose bridge, so phones
-# appear to arrive from a 172.21.0.0/16 proxy address.  The TCP flow kamailio
-# reuses for in-dialog BYE/ACK therefore has its local socket bound to the
-# container address (MY_IP_ADDRESS) while Via/Record-Route advertise the
-# external MY_EXT_IP_ADDRESS.  With tcp_accept_aliases=no, the connection
-# lookup that feeds t_relay fails to match the existing flow (local IP differs
-# from the advertised dst) and in-dialog requests die with 481 "Call/
-# Transaction Does Not Exist" -- the phones never get the ACK to the 200 OK
-# and FreeSWITCH tears the call down with 408 ACK Timeout.  Enabling it lets
-# kamailio reuse the established flow for in-dialog messages, the same way
-# out-of-dialog routing already does via +sip.instance.  default.cfg owns the
-# value and is included after local.cfg, so patch it directly (idempotent).
+# When BIND_IP and ADVERTISE_IP differ (any NAT/bridge/LB in front of
+# kamailio -- not just Docker Desktop), the TCP flow kamailio reuses for
+# in-dialog BYE/ACK has its local socket bound to BIND_IP while
+# Via/Record-Route advertise ADVERTISE_IP. With tcp_accept_aliases=no, the
+# connection lookup that feeds t_relay fails to match the existing flow
+# (local IP differs from the advertised dst) and in-dialog requests die
+# with 481 "Call/Transaction Does Not Exist" -- the phone never gets the
+# ACK and FreeSWITCH tears the call down with 408 ACK Timeout. Enabling it
+# lets kamailio reuse the established flow for in-dialog messages, same as
+# out-of-dialog routing already does via +sip.instance. default.cfg owns
+# the value and is included after local.cfg, so patch it directly
+# (idempotent).
 DEFAULT_CFG="$(dirname "$CONF")/default.cfg"
 sed -i 's#^tcp_accept_aliases = no$#tcp_accept_aliases = yes#' "$DEFAULT_CFG"
 log "tcp_accept_aliases enabled (reuse flow TCP for in-dialog requests)"

@@ -141,7 +141,13 @@ services:
     hostname: kamailio.kazoo
     environment:
       DOMAIN: ${MASTER_REALM}
-      HOST_PUBLIC_IP: ${KAMAILIO_PUBLIC_IP:-127.0.0.1}
+      # Renamed from HOST_PUBLIC_IP to match the cleaned-up entrypoint's
+      # ADVERTISE_IP var -- this is what kamailio puts in Via/Contact/
+      # Record-Route, i.e. the address phones actually send packets back to.
+      # Must stay in sync with the entrypoint.sh var name; if these drift
+      # apart it fails silently (falls back to 127.0.0.1, no error) and
+      # reintroduces the dropped-ACK/BYE bug.
+      ADVERTISE_IP: ${KAMAILIO_PUBLIC_IP:-127.0.0.1}
       RABBIT_HOST: rabbitmq
       RABBIT_USER: ${RABBIT_USER}
       RABBIT_PASS: ${RABBIT_PASS}
@@ -171,12 +177,17 @@ services:
       KZ_AMQP_HOST: rabbitmq
       KZ_AMQP_VHOST: /
       KZ_AMQP_ZONE: local
-      # Advertised RTP IP (SDP c=/media lines) -- reachable address on the
-      # machine hosting Docker Desktop; the RTP range below is published to it.
+      # EXT_RTP_IP: advertised in SDP for RTP media specifically.
+      # KAZOO_ADDRESS/KAZOO_LOCAL_ADDRESS: advertised for SIP signaling
+      # (Contact/Via) and used to build the Erlang distribution nodename.
+      # All three are genuinely separate template tokens in this
+      # entrypoint -- confirmed against the real script, not dead vars.
+      # They're set to the same value here because this is a single-host
+      # lab; keep that in mind if signaling and media ever need to be
+      # advertised at different addresses later (e.g. split SBC/media relay).
       EXT_RTP_IP: ${FS_PUBLIC_IP:-192.168.1.188}
-      # Advertised SIP address (Contact/Message header in FS replies) and the
-      # port SIP is published on so phones can send in-dialog requests back.
       KAZOO_LOCAL_ADDRESS: ${FS_PUBLIC_IP:-192.168.1.188}
+      KAZOO_ADDRESS: ${FS_PUBLIC_IP:-192.168.1.188}
       # Clamp the RTP range so only a small UDP slice needs publishing.
       RTP_START_PORT: 16384
       RTP_END_PORT: 16512

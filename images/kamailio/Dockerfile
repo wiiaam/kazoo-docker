@@ -4,28 +4,27 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        gnupg \
-        git \
-        postgresql-client \
-    && curl -fsSL -o /tmp/kamailiodebkey.gpg https://deb.kamailio.org/kamailiodebkey.gpg \
-    && apt-key add /tmp/kamailiodebkey.gpg \
-    && echo "deb http://deb.kamailio.org/kamailio55 bullseye main" > /etc/apt/sources.list.d/kamailio.list \
-    && echo "deb-src http://deb.kamailio.org/kamailio55 bullseye main" >> /etc/apt/sources.list.d/kamailio.list \
-    && rm -f /tmp/kamailiodebkey.gpg \
+    ca-certificates \
+    curl \
+    gnupg \
+    git \
+    postgresql-client \
+    && mkdir -p /usr/share/keyrings \
+    && curl -fsSL https://deb.kamailio.org/kamailiodebkey.gpg -o /usr/share/keyrings/kamailio.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/kamailio.gpg] http://deb.kamailio.org/kamailio55 bullseye main" > /etc/apt/sources.list.d/kamailio.list \
+    && echo "deb-src [signed-by=/usr/share/keyrings/kamailio.gpg] http://deb.kamailio.org/kamailio55 bullseye main" >> /etc/apt/sources.list.d/kamailio.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        kamailio \
-        kamailio-postgres-modules \
-        kamailio-kazoo-modules \
-        kamailio-outbound-modules \
-        kamailio-presence-modules \
-        kamailio-tls-modules \
-        kamailio-utils-modules \
-        kamailio-websocket-modules \
-        kamailio-extra-modules \
-        kamailio-xmpp-modules \
+    kamailio \
+    kamailio-postgres-modules \
+    kamailio-kazoo-modules \
+    kamailio-outbound-modules \
+    kamailio-presence-modules \
+    kamailio-tls-modules \
+    kamailio-utils-modules \
+    kamailio-websocket-modules \
+    kamailio-extra-modules \
+    kamailio-xmpp-modules \
     && rm -rf /var/lib/apt/lists/*
 
 # Community Postgres backend configs (kageds 4.3-postgres): kamailio.cfg + roles
