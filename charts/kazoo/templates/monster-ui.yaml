@@ -54,11 +54,11 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 12
-          {{- if .Values.shared.enabled }}
           volumeMounts:
+            {{- if .Values.shared.enabled }}
             - name: shared
               mountPath: /shared
-          {{- end }}
+            {{- end }}
       {{- if .Values.shared.enabled }}
       volumes:
         - name: shared
