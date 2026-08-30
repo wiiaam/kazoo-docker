@@ -213,6 +213,24 @@ DEFAULT_CFG="$(dirname "$CONF")/default.cfg"
 sed -i 's#^tcp_accept_aliases = no$#tcp_accept_aliases = yes#' "$DEFAULT_CFG"
 log "tcp_accept_aliases enabled (reuse flow TCP for in-dialog requests)"
 
+# Registration events carry a "Proxy-Path" (in registrar-role.cfg) that
+# ecallmgr uses as the route back to kamailio when FreeSWITCH dials a
+# callee's registered device (the terminating leg's fs_path). The upstream
+# tree hardcodes MY_IP_ADDRESS there on the (bind == advertised address)
+# assumption; with a multihomed/LB deployment MY_IP_ADDRESS is the wildcard
+# bind (e.g. 0.0.0.0), so every registration's Path becomes
+# `sip:0.0.0.0:5060` and FreeSWITCH dials the wildcard -> callee leg times
+# out (NO_ANSWER/480). Point the Proxy-Path at a dedicated MY_REGISTRAR_PATH
+# token defaulting to ADVERTISE_IP, overridable (e.g. the kamailio LB IP)
+# via KAMAILIO_REGISTRAR_PATH.
+REGISTRAR_ROLE="$(dirname "$CONF")/registrar-role.cfg"
+: "${KAMAILIO_REGISTRAR_PATH:=$ADVERTISE_IP}"
+sed -i 's#"Proxy-Path" : "sip:MY_IP_ADDRESS:$var(port)"#"Proxy-Path" : "sip:MY_REGISTRAR_PATH:$var(port)"#' "$REGISTRAR_ROLE" || true
+grep -q '!MY_REGISTRAR_PATH!' "$LOCAL_CFG" || \
+    printf '\n#!substdef "!MY_REGISTRAR_PATH!%s!g"\n' "$KAMAILIO_REGISTRAR_PATH" >>"$LOCAL_CFG"
+patch_subst MY_REGISTRAR_PATH "$KAMAILIO_REGISTRAR_PATH" "$LOCAL_CFG"
+log "registrar Proxy-Path routes through ${KAMAILIO_REGISTRAR_PATH}"
+
 # ---------------------------------------------------------------- database
 wait_for_pg
 ensure_pg_role_db

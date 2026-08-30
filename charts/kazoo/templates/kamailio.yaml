@@ -31,6 +31,10 @@ spec:
                   key: masterRealm
             - name: ADVERTISE_IP
               value: {{ .Values.kamailio.advertiseIP | quote }}
+            {{- if .Values.kamailio.registrarPath }}
+            - name: KAMAILIO_REGISTRAR_PATH
+              value: {{ .Values.kamailio.registrarPath | quote }}
+            {{- end }}
             - name: RABBIT_HOST
               value: {{ include "kazoo.service" (dict "ctx" . "name" "rabbitmq") }}
             - name: RABBIT_USER

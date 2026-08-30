@@ -201,6 +201,13 @@ kamailio:
   ## (e.g. sip.example.com) or IP; in hostPort mode to the node's LAN IP.
   ## Empty -> entrypoint picks pod IP (in-cluster only).
   advertiseIP: ""
+  ## Address kamailio announces as the registration "Proxy-Path" (what ecallmgr
+  ## uses to route the callee leg back through kamailio when FreeSWITCH dials a
+  ## registered device). Must be reachable FROM FreeSWITCH; defaults to
+  ## advertiseIP. With a LoadBalancer in front (advertiseIP = public/DNS name
+  ## that the cluster's resolver may not honor) set this to the kamailio LB IP
+  ## so the terminating leg is deterministic: e.g. "192.168.10.129".
+  registrarPath: ""
   ## Pod-level hostPort for single-node labs (SIP 5060 straight on the node,
   ## keep advertiseIP = node LAN IP). For a real deployment use the Service
   ## below (type: LoadBalancer) and leave type: none here.
