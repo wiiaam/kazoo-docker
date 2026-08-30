@@ -231,6 +231,40 @@ grep -q '!MY_REGISTRAR_PATH!' "$LOCAL_CFG" || \
 patch_subst MY_REGISTRAR_PATH "$KAMAILIO_REGISTRAR_PATH" "$LOCAL_CFG"
 log "registrar Proxy-Path routes through ${KAMAILIO_REGISTRAR_PATH}"
 
+# FreeSWITCH (ecallmgr) originates the terminating leg against the callee's
+# AOR, sending it back through kamailio with a preloaded
+# `Route: <sip:kamailio>` (fs_path, built from the registration Proxy-Path
+# above) and headers X-KAZOO-AOR / X-KAZOO-INVITE-FORMAT=contact. Two upstream
+# checks wrongly classify/gate that traffic:
+#
+#   1) DISPATCHER_CLASSIFY_SOURCE only consults the dispatcher source list in
+#      the `!is_myself($ou)` branch. FS's INVITE has $ou=our own realm, so it
+#      is tagged "external" and FLAG_INTERNALLY_SOURCED is never set, even
+#      though its source IP:port is in the dispatcher (media server) list.
+#      Fix: check the dispatcher source list BEFORE the is_myself($ou) branch,
+#      so anything arriving from a registered media server is internally
+#      sourced (this is the flag ROUTE_TO_AOR + the no-auth path both key off).
+#   2) PREPARE_INITIAL_REQUESTS refuses *any* initial request carrying a
+#      route-set unless registered("location", "$rz:$Au", 2) matches. FS's
+#      INVITE legitimately carries the preloaded proxy Route but never
+#      authenticates ($Au empty), so it is 403 "No pre-loaded routes". Fix:
+#      grant internally-sourced (media server) requests the same allowance.
+DISPATCHER_ROLES="$(dirname "$CONF")"/dispatcher-role-*.cfg
+for _role in $DISPATCHER_ROLES; do
+    if ! grep -q 'originated from internal (dispatcher) sources' "$_role"; then
+        sed -i \
+            -e 's#^[ ]*if (is_myself("\$ou")) {#       $var(classify_dispatcher_flag) = $(sel(cfg_get.kazoo.dispatcher_classify_flags){s.int});\n       if (ds_is_from_list(-1, "$var(classify_dispatcher_flag)")) {\n           xlog("$var(log_request_level)", "$ci|log|originated from internal (dispatcher) sources\\n");\n           setflag(FLAG_INTERNALLY_SOURCED);\n       } else\n       if (is_myself("$ou")) {#' \
+            "$_role" || true
+        log "patched $_role: media servers classified internal by source list"
+    fi
+done
+if ! grep -q 'allowing initial route-set for internally-sourced request' "$DEFAULT_CFG"; then
+    sed -i \
+        -e 's#^[ ]*if(registered("location", "\$rz:\$Au", 2) == 1) {#        if (isflagset(FLAG_INTERNALLY_SOURCED)) {\n            xlog("L_INFO", "$ci|log|allowing initial route-set for internally-sourced request\\n");\n        } else if(registered("location", "$rz:$Au", 2) == 1) {#' \
+        "$DEFAULT_CFG" || true
+    log "patched $DEFAULT_CFG: preloaded route-set allowed for internally-sourced requests"
+fi
+
 # ---------------------------------------------------------------- database
 wait_for_pg
 ensure_pg_role_db
