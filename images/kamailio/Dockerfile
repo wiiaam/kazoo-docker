@@ -2,6 +2,12 @@ FROM debian:11
 
 ARG DEBIAN_FRONTEND=noninteractive
 
+# Apt resilience: foreign mirrors (deb.debian.org / deb.kamailio.org) flake on
+# CI runners; default retry count is 0, which turns a blip into a hard failure.
+RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "20";\n' \
+    > /etc/apt/apt.conf.d/99retries
+
+# --- Base tooling (separate layer: cached unless bullseye packages move) -----
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -9,11 +15,16 @@ RUN apt-get update \
     gnupg \
     git \
     postgresql-client \
-    && mkdir -p /usr/share/keyrings \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Kamailio 5.5 deb repo (https + signed-by keyring) -----------------------
+RUN mkdir -p /usr/share/keyrings \
     && curl -fsSL https://deb.kamailio.org/kamailiodebkey.gpg -o /usr/share/keyrings/kamailio.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/kamailio.gpg] http://deb.kamailio.org/kamailio55 bullseye main" > /etc/apt/sources.list.d/kamailio.list \
-    && echo "deb-src [signed-by=/usr/share/keyrings/kamailio.gpg] http://deb.kamailio.org/kamailio55 bullseye main" >> /etc/apt/sources.list.d/kamailio.list \
-    && apt-get update \
+    && printf 'deb [signed-by=/usr/share/keyrings/kamailio.gpg] https://deb.kamailio.org/kamailio55 bullseye main\ndeb-src [signed-by=/usr/share/keyrings/kamailio.gpg] https://deb.kamailio.org/kamailio55 bullseye main\n' \
+    > /etc/apt/sources.list.d/kamailio.list
+
+# --- Kamailio + module set ----------------------------------------------------
+RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     kamailio \
     kamailio-postgres-modules \
