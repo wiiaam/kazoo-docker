@@ -43,7 +43,7 @@ ensure_ecallmgr_fs_nodes() {
     return 0
   fi
 printf '%s' "${doc}" \
-      | sed "0,/\"default\": {/s//\"default\": {\n        \"fs_nodes\": [ \"${FS_NODE_NAME}\" ],/" \
+      | sed "0,/\"default\": *{/s//\"default\": {\n        \"fs_nodes\": [ \"${FS_NODE_NAME}\" ],/" \
       | curl -sf -X PUT -H "Content-Type: application/json" --data-binary @- "${couch}/system_config/ecallmgr" \
       && echo "kazoo-init: seeded ecallmgr fs_nodes" \
       || echo "kazoo-init: WARNING - failed to seed ecallmgr fs_nodes"

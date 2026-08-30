@@ -48,6 +48,17 @@ secrets:
   masterUser: administrator
   masterPass: change_me_master
 
+## Outbound DNS for the data plane / shared volume/ports section follows.
+## NetworkPolicy: this cluster is default-deny across all pods, so we ship a
+## namespace-wide permissive CiliumNetworkPolicy. `ciliumDefaultAllow: true`
+## renders it (allows same-namespace + the ingress gateway + -- when
+## `allowWorldIngress` is also true -- `world`, which LoadBalancer-exposed SIP
+## and RTP need). Set false on clusters without per-namespace default-deny.
+networkPolicies:
+  ciliumDefaultAllow: false
+  traefikNamespace: traefik
+  allowWorldIngress: true
+
 # ---------------------------------------------------------------------------
 # Subdomain DNS: pods get hostname.* + setHostnameAsFQDN behind a headless
 # Service so `hostname -f` is dotted (Erlang long-name requirement) and
@@ -235,12 +246,18 @@ freeswitch:
   ## SIP + Erlang dist ports (also the in-cluster service ports below).
   sipPort: 11000
   erlangDistPort: 8031
-  ## IP advertised for SIP signaling (KAZOO_ADDRESS/KAZOO_LOCAL_ADDRESS) and
-  ## for RTP (EXT_RTP_IP). Empty -> pod IP (in-cluster only). For LoadBalancer
-  ## exposure set both to the LB DNS name (e.g. sip.example.com) so phones get
-  ## the right SDP/calling-party address.
+  ## IP advertised to phones for SIP signaling (KAZOO_LOCAL_ADDRESS -> ext-sip)
+  ## and RTP (EXT_RTP_IP). For LoadBalancer exposure set publicIP to the LB DNS
+  ## name (e.g. sip.example.com) so phones get the right Contact/SDP address.
+  ## Empty -> falls back to the pod IP (in-cluster only). The *local* SIP bind
+  ## (sip-ip, KAZOO_ADDRESS) is ALWAYS a bindable local address: the pod IP via
+  ## the downward API, or `localIP` below to force a specific/single-host bind.
   publicIP: ""
   extRtpIP: ""
+  ## Force the local SIP bind address (sip-ip / KAZOO_ADDRESS) instead of the
+  ## pod's own IP (status.podIP). Only useful with hostPort/hostNetwork single-
+  ## node labs or a fixed container IP; leave empty otherwise.
+  localIP: ""
   ## Pod-level network knobs for single-node labs. Leave type: none and use the
   ## Service below (type: LoadBalancer) for real deployments.
   external:

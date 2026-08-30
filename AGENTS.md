@@ -304,6 +304,14 @@ Shared values that everything hangs on (real values live in `.env`):
 7. **Console/tooling gotchas** — no jq/python3 in the core image (rockylinux,
    curl-only); FS container has no bash (use `sh -c`). `fs_cli` ESL is locked
    down even to loopback on some configs; prefer logs/pcaps/sup for diagnosis.
+8. **kamailio binds all interfaces by default** — the entrypoint now defaults
+   `BIND_IP=0.0.0.0` (all IPv4) instead of `hostname -i`'s first address:
+   dual-stack k8s pods list the intended-but-not-assignable IPv6 first on a
+   v4-only underlay → "bind ... Cannot assign requested address" crashloop.
+   Optional override: `[::]` = all v6, `dual` = both stacks (appends
+   `listen=...:[::]:<port>` lines), or a single address. No chart plumbing
+   needed; empty/unset = all interfaces. Requires an image rebuild to take
+   effect.
 
 ## Master account + test topology
 

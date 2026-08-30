@@ -62,15 +62,21 @@ spec:
               value: {{ .Values.freeswitch.rtpStartPort | quote }}
             - name: RTP_END_PORT
               value: {{ .Values.freeswitch.rtpEndPort | quote }}
-            {{- if .Values.freeswitch.extRtpIP }}
-            - name: EXT_RTP_IP
-              value: {{ .Values.freeswitch.extRtpIP | quote }}
-            {{- end }}
+            - name: KAZOO_ADDRESS
+              {{- if .Values.freeswitch.localIP }}
+              value: {{ .Values.freeswitch.localIP | quote }}
+              {{- else }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+              {{- end }}
             {{- if .Values.freeswitch.publicIP }}
             - name: KAZOO_LOCAL_ADDRESS
               value: {{ .Values.freeswitch.publicIP | quote }}
-            - name: KAZOO_ADDRESS
-              value: {{ .Values.freeswitch.publicIP | quote }}
+            {{- end }}
+            {{- if .Values.freeswitch.extRtpIP }}
+            - name: EXT_RTP_IP
+              value: {{ .Values.freeswitch.extRtpIP | quote }}
             {{- end }}
           ports:
             - name: sip-udp

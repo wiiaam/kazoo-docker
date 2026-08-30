@@ -23,7 +23,9 @@ spec:
         - name: postgres
           image: {{ include "kazoo.image" (dict "ctx" . "name" "postgres") }}
           imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
-          command: ["postgres", "-c", {{ printf "max_connections=%d" (int .Values.postgres.maxConnections) | quote }}]
+          # args, NOT command: k8s `command:` replaces the entrypoint, and the
+          # official image's docker-entrypoint.sh is what drops root->postgres.
+          args: ["-c", {{ printf "max_connections=%d" (int .Values.postgres.maxConnections) | quote }}]
           env:
             - name: POSTGRES_DB
               value: kazoo
@@ -49,8 +51,12 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 12
           volumeMounts:
+            # Mount the parent dir, NOT /var/lib/postgresql/data: a fresh
+            # ext4 volume has a root-level lost+found which makes initdb
+            # refuse a directly-mounted "data" (non-empty) dir. The entrypoint
+            # creates the data subdir itself.
             - name: postgres-data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/postgresql
   volumeClaimTemplates:
     - metadata:
         name: postgres-data
