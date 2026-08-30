@@ -18,8 +18,15 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Kamailio 5.5 deb repo (https + signed-by keyring) -----------------------
-RUN mkdir -p /usr/share/keyrings \
-    && curl -fsSL https://deb.kamailio.org/kamailiodebkey.gpg -o /usr/share/keyrings/kamailio.gpg \
+# The as-served kamailiodebkey.gpg is a legacy-format keyring that apt's strict
+# keydb reader cannot parse ("invalid packet (ctb=2d)" -> NO_PUBKEY -> exit 100).
+# Import + re-export via gpg normalises it: gpg drops the unparseable legacy
+# packets and re-emits the valid signing key(s) as a clean, apt-readable keyring.
+RUN mkdir -p /usr/share/keyrings /tmp/kamailio-key \
+    && curl -fsSL https://deb.kamailio.org/kamailiodebkey.gpg -o /tmp/kamailio-key/kamailio.gpg \
+    && GNUPGHOME=/tmp/kamailio-key gpg --batch --no-tty --import /tmp/kamailio-key/kamailio.gpg \
+    && GNUPGHOME=/tmp/kamailio-key gpg --batch --no-tty --export > /usr/share/keyrings/kamailio.gpg \
+    && rm -rf /tmp/kamailio-key \
     && printf 'deb [signed-by=/usr/share/keyrings/kamailio.gpg] https://deb.kamailio.org/kamailio55 bullseye main\ndeb-src [signed-by=/usr/share/keyrings/kamailio.gpg] https://deb.kamailio.org/kamailio55 bullseye main\n' \
     > /etc/apt/sources.list.d/kamailio.list
 
