@@ -46,6 +46,9 @@ Working knowledge for agents operating on this repo.
     patches `local.cfg` substdefs, seeds PG role/db/schema from the initdb dump,
     seeds the dispatcher, injects `advertise` on UDP/TCP listeners.
   - `monster-ui/` — static SPA + nginx; talks only to Crossbar over HTTP.
+- `charts/kazoo/` — Kubernetes chart mirroring the compose stack (single-replica
+  StatefulSets for the data plane, Deployments for the app plane). See the
+  Helm chart section below.
 - `README.md` — placeholder; do not assume content.
 
 ## How the stack wires together (critical coupling)
@@ -153,6 +156,67 @@ Shared values that everything hangs on (real values live in `.env`):
   GHA cache (`type=gha`, scope `<image>`) is shared, so PR builds are fast.
 - Pushed packages are private by default in GHCR — set the repo/package
   visibility to public (or configure your k8s-imagePullSecrets) to pull them.
+- **Helm chart**: `kazoo-helm.yml` packages `charts/kazoo` and pushes it as an
+  OCI artifact to `oci://ghcr.io/<repo>/` on helm/ changes (PRs lint-only).
+  Install/upgrade with:
+  `helm install kazoo oci://ghcr.io/wiiaam/kazoo-docker/kazoo --version <Chart.yaml version>`.
+  Bump `version:` in `charts/kazoo/Chart.yaml` whenever chart contents change.
+
+## Helm chart (`charts/kazoo`)
+
+- Mirrors the compose stack 1:1 on Kubernetes: image tags/behavior are the same
+  images (`kazoo-*`, `latest`), env/secret wiring matches `.env.example`, and
+  the ECK coupling is preserved (Erlang cookie, Rabbit creds, Couch host).
+- **Erlang long-node names need dotted hostnames**; k8s pod DNS gives us the
+  equivalent of the compose `hostname: <svc>.kazoo` trick. Every pod that runs
+  an Erlang node (`kazoo-apps`, `ecallmgr`, `freeswitch`) sets
+  `hostname: <svc>` + `subdomain: <values.subdomain>` +
+  `setHostnameAsFQDN: true`, so it resolves as `<svc>.<subdomain>` behind a
+  headless Service named after `values.subdomain` (default `kazoo`, matching
+  the compose names `kazoo-apps.kazoo`, `freeswitch.kazoo`, ...). The
+  `freeswitch@freeswitch.kazoo` identity is defaulted on both sides
+  (`freeswitch.nodeName` + `kaa` `FS_NODE_NAME`), so the ecallmgr `fs_nodes`
+  seed from `kazoo-init.sh` keeps working unchanged.
+- The **`shared` PVC (ReadWriteMany)** is the `/shared` staging dir used by
+  `crossbar_maintenance init_apps`: kazoo-apps renders the apps there,
+  monster-ui's initContainer copies them in.
+- **Values layout follows kube-prometheus-stack**: top-level `nameOverride` /
+  `fullnameOverride` / `global.{imageRegistry,imagePullPolicy,
+  imagePullSecrets}` + `subdomain`; each component carries `enabled`, a flat
+  `image:` string (`--set <comp>.image=...`), a `service:` block (`name` = the
+  in-cluster DNS name, type/ports/nodePort), and its storage. Service names
+  default to standard short names (`couchdb`, `rabbitmq`, `postgres`, `crossbar`,
+  `kamailio`, `freeswitch`, `monster-ui`); override e.g.
+  `--set freeswitch.service.name=fs0` and the env wiring (`RABBIT_HOST`,
+  `COUCH_HOST`, `FREESWITCH_SIP_ADDRESS`, ...) follows automatically.
+- Expose model (`values.yaml`): kamailio `external.type` defaults to `hostPort`
+  (host-reachable 5060/5061/7000), fallback `nodePort` (minikube/kind) or
+  `none` (port-forward). FreeSWITCH `external.type` defaults to `none`
+  (in-cluster); `hostPort` exports SIP 11000 + the RTP slice 16384-16512, and
+  `hostNetwork` is also available (true L3, RTP straight on the host).
+- **The phone advertise-IP caveat still applies in k8s**: kamailio needs
+  `kamailio.advertiseIP` (a host-reachable IP) or in-dialog requests die
+  (same root cause as `.env` `KAMAILIO_PUBLIC_IP`; tree in
+  `charts/kazoo/templates/NOTES.txt`).
+- `<comp>.service.type: none` (kazooCore/monsterUi) skips that Service
+  (`kubectl port-forward` instead) — avoids an invalid `type: none` in the
+  Spec. Each component's `service` block sets name/type/ports, mirroring the
+  kube-prometheus-stack values layout.
+- Data plane is single-replica StatefulSets (CouchDB/Rabbit/PG) + PVCs; kazoo
+  apps, ecallmgr, kamailio, freeswitch, monster-ui are Deployments.
+- Render check: `helm lint charts/kazoo` and `helm template kazoo charts/kazoo`
+  (20 manifests: 8 Services incl. headless, 5 Deployments, 3 StatefulSets,
+  3 PVCs, 1 Secret). Release name defaults to `kazoo`.
+- Image/pull defaults: each component carries a flat `image:` string — the
+  four kazoo images default to the repo's GHCR packages
+  (`ghcr.io/wiiaam/<image>:latest`); the data plane uses official Docker Hub
+  images (`couchdb:3.2.3`, `rabbitmq:3.13.7-management`, `postgres:13`).
+  `global.imagePullPolicy` (default `IfNotPresent`) is applied to every
+  container. Override an image with `--set <comp>.image=...`, or set
+  `global.imageRegistry` to force every image (incl. official) through one
+  registry (prepends the registry, keeps the repo path). Images must exist +
+  be pullable in GHCR first (see GHCR builds): packages are private by
+  default, set visibility public or pass `imagePullSecrets`.
 
 ## Key files / touch points
 
@@ -167,6 +231,9 @@ Shared values that everything hangs on (real values live in `.env`):
 | node/env render for apps/ecallmgr | `images/kazoo-core/entrypoint.sh`, `config.ini.template` |
 | published ports / RTP slice / IP vars | `compose.yaml` |
 | shared secrets/tokens template | `.env.example` |
+| chart values / expose modes / secrets | `charts/kazoo/values.yaml` |
+| Erlang long-name wiring (headless svc + FQDN) | `charts/kazoo/templates/{headless.yaml, _helpers.tpl}` |
+| per-env override of `freeswitch@freeswitch.kazoo` | `images/kazoo-core/kazoo-init.sh` (`FS_NODE_NAME`) |
 
 ## Ports
 
@@ -249,7 +316,9 @@ point an alias/wrapper at the `docker`/`docker.exe` binary first.
 - Run the actual `admin` ↔ `tester` call and verify RTP/audio + CDR.
 - Automate device/account provisioning (currently manual couch edits) so a
   clean-slate rebuild is fully scripted (`kazoo-init.sh` is the right home).
-- Multi-node/K8s growth: CouchDB cluster + zone placement, HAProxy/edge story,
-  k8s manifests (Deployments/StatefulSets per service).
+- Live-cluster validation of `charts/kazoo` (needs GHCR images pushed + public
+  or imagePullSecrets, then `helm install kazoo charts/kazoo`).
+- Multi-node/K8s growth: CouchDB cluster + zone placement, HAProxy/edge story
+  (the chart is currently single-replica per data service).
 - Investigate whether FS ever needs its own AMQP connection (the "zero rabbit
   connections from FS" observation turned out to be expected, not a bug).

@@ -1,0 +1,67 @@
+{{- if .Values.couchdb.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kazoo.fullname" . }}-couchdb
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "kazoo.service" (dict "ctx" . "name" "couchdb") }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kazoo.selectorLabels" . | nindent 6 }}
+      component: couchdb
+  template:
+    metadata:
+      labels:
+        {{- include "kazoo.selectorLabels" . | nindent 8 }}
+        component: couchdb
+    spec:
+      {{- include "kazoo.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: couchdb
+          image: {{ include "kazoo.image" (dict "ctx" . "name" "couchdb") }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          env:
+            - name: COUCHDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: couchUser
+            - name: COUCHDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: couchPass
+            - name: COUCHDB_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: couchSecret
+          ports:
+            - name: http
+              containerPort: 5984
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "curl -fsS http://127.0.0.1:5984/_up || exit 1"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          volumeMounts:
+            - name: couchdb-data
+              mountPath: /opt/couchdb/data
+  volumeClaimTemplates:
+    - metadata:
+        name: couchdb-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.couchdb.storage.storageClass }}
+        storageClassName: {{ .Values.couchdb.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.couchdb.storage.size }}
+{{- end }}

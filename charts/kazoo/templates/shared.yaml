@@ -1,0 +1,17 @@
+{{- if .Values.shared.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kazoo.fullname" . }}-shared
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.shared.accessMode }}
+  {{- if .Values.shared.storageClass }}
+  storageClassName: {{ .Values.shared.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.shared.size }}
+{{- end }}

@@ -1,0 +1,124 @@
+{{- if .Values.freeswitch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kazoo.fullname" . }}-freeswitch
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.freeswitch.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kazoo.selectorLabels" . | nindent 6 }}
+      component: freeswitch
+  template:
+    metadata:
+      labels:
+        {{- include "kazoo.selectorLabels" . | nindent 8 }}
+        component: freeswitch
+        app: {{ include "kazoo.name" . }}
+    spec:
+      {{- include "kazoo.imagePullSecrets" . | nindent 6 }}
+      hostname: freeswitch
+      subdomain: {{ .Values.subdomain }}
+      setHostnameAsFQDN: true
+      {{- if eq .Values.freeswitch.external.type "hostNetwork" }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}-freeswitch
+          image: {{ include "kazoo.image" (dict "ctx" . "name" "freeswitch") }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          env:
+            - name: ERLANG_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: erlangCookie
+            - name: RABBIT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: rabbitUser
+            - name: RABBIT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: rabbitPass
+            - name: KZ_AMQP_HOST
+              value: {{ include "kazoo.service" (dict "ctx" . "name" "rabbitmq") }}
+            - name: KZ_AMQP_VHOST
+              value: /
+            - name: KZ_AMQP_ZONE
+              value: local
+            - name: KAZOO_NODENAME
+              value: {{ .Values.freeswitch.nodeName | quote }}
+            - name: KAZOO_PORT
+              value: {{ .Values.freeswitch.erlangDistPort | quote }}
+            - name: SIP_PORT
+              value: {{ .Values.freeswitch.sipPort | quote }}
+            - name: RTP_START_PORT
+              value: {{ .Values.freeswitch.rtpStartPort | quote }}
+            - name: RTP_END_PORT
+              value: {{ .Values.freeswitch.rtpEndPort | quote }}
+            {{- if .Values.freeswitch.extRtpIP }}
+            - name: EXT_RTP_IP
+              value: {{ .Values.freeswitch.extRtpIP | quote }}
+            {{- end }}
+            {{- if .Values.freeswitch.publicIP }}
+            - name: KAZOO_LOCAL_ADDRESS
+              value: {{ .Values.freeswitch.publicIP | quote }}
+            - name: KAZOO_ADDRESS
+              value: {{ .Values.freeswitch.publicIP | quote }}
+            {{- end }}
+          ports:
+            - name: sip-udp
+              containerPort: {{ .Values.freeswitch.sipPort }}
+              protocol: UDP
+              {{- if eq .Values.freeswitch.external.type "hostPort" }}
+              hostPort: {{ .Values.freeswitch.external.hostPortSip }}
+              {{- end }}
+            - name: sip-tcp
+              containerPort: {{ .Values.freeswitch.sipPort }}
+              protocol: TCP
+              {{- if eq .Values.freeswitch.external.type "hostPort" }}
+              hostPort: {{ .Values.freeswitch.external.hostPortSip }}
+              {{- end }}
+            - name: erlang-dist
+              containerPort: {{ .Values.freeswitch.erlangDistPort }}
+              protocol: TCP
+            - name: epmd
+              containerPort: 4369
+              protocol: TCP
+            {{- if eq .Values.freeswitch.external.type "hostPort" }}
+            {{- $rtpStart := int .Values.freeswitch.rtpStartPort }}
+            {{- $rtpEnd := int .Values.freeswitch.rtpEndPort }}
+            {{- $rtpCount := add (sub $rtpEnd $rtpStart) 1 | toString | int }}
+            {{- range $i, $_ := until $rtpCount }}
+            - name: rtp-{{ add $rtpStart $i }}
+              containerPort: {{ add $rtpStart $i }}
+              protocol: UDP
+              hostPort: {{ add $rtpStart $i }}
+            {{- end }}
+            {{- end }}
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /var/run/freeswitch/freeswitch.pid"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 10
+          volumeMounts:
+            - name: freeswitch-data
+              mountPath: /var/lib/kazoo-freeswitch
+            - name: freeswitch-log
+              mountPath: /var/log/freeswitch
+      volumes:
+        - name: freeswitch-data
+          persistentVolumeClaim:
+            claimName: {{ include "kazoo.fullname" . }}-freeswitch-data
+        - name: freeswitch-log
+          persistentVolumeClaim:
+            claimName: {{ include "kazoo.fullname" . }}-freeswitch-log
+{{- end }}

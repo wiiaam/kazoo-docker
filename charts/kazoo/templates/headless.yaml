@@ -1,0 +1,17 @@
+# Headless Service backing values.subdomain. Every pod sets
+# spec.hostname + spec.subdomain (+ setHostnameAsFQDN) so:
+#   - `hostname -f` in a pod is the dotted FQDN (Erlang long-name requirement)
+#   - "<hostname>.<subdomain>" resolves to that pod from anywhere in-cluster
+#     (e.g. freeswitch.kazoo -> the FreeSWITCH pod) -- mirrors compose names.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.subdomain }}
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "kazoo.componentLabels" . | nindent 4 }}
+  publishNotReadyAddresses: true

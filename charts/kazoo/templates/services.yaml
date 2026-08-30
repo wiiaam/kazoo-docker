@@ -1,0 +1,188 @@
+# Per-component ClusterIP/NodePort Services (in-cluster only by default).
+# Each is configured in its owning component's `service:` section; names come
+# from <component>.service.name (the in-cluster DNS names pods resolve).
+
+{{- if and .Values.couchdb.enabled .Values.couchdb.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kazoo.service" (dict "ctx" . "name" "couchdb") }}
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.couchdb.service.type }}
+  selector:
+    {{- include "kazoo.selectorLabels" . | nindent 4 }}
+    component: couchdb
+  ports:
+    - name: http
+      port: {{ .Values.couchdb.service.port }}
+      protocol: TCP
+{{- end }}
+
+{{- if and .Values.rabbitmq.enabled .Values.rabbitmq.service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kazoo.service" (dict "ctx" . "name" "rabbitmq") }}
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.rabbitmq.service.type }}
+  selector:
+    {{- include "kazoo.selectorLabels" . | nindent 4 }}
+    component: rabbitmq
+  ports:
+    - name: amqp
+      port: {{ .Values.rabbitmq.service.port }}
+      protocol: TCP
+    - name: management
+      port: {{ .Values.rabbitmq.service.mgmtPort }}
+      protocol: TCP
+{{- end }}
+
+{{- if and .Values.postgres.enabled .Values.postgres.service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kazoo.service" (dict "ctx" . "name" "postgres") }}
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.postgres.service.type }}
+  selector:
+    {{- include "kazoo.selectorLabels" . | nindent 4 }}
+    component: postgres
+  ports:
+    - name: postgres
+      port: {{ .Values.postgres.service.port }}
+      protocol: TCP
+{{- end }}
+
+---
+# Crossbar HTTP API (kazoo-apps) -- the browser-facing REST endpoint. This is
+# kazooCore's outbound service: type "none" means no Service at all (port-
+# forward instead, see NOTES.txt).
+{{- if and .Values.kazooCore.enabled .Values.kazooCore.service.enabled (ne .Values.kazooCore.service.type "none") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kazoo.service" (dict "ctx" . "name" "kazooCore") }}
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.kazooCore.service.type }}
+  selector:
+    {{- include "kazoo.selectorLabels" . | nindent 4 }}
+    component: kazoo-apps
+  ports:
+    - name: crossbar
+      port: {{ .Values.kazooCore.service.port }}
+      targetPort: {{ .Values.kazooCore.service.targetPort }}
+      protocol: TCP
+      {{- if and (eq .Values.kazooCore.service.type "NodePort") (.Values.kazooCore.service.nodePort) }}
+      nodePort: {{ .Values.kazooCore.service.nodePort }}
+      {{- end }}
+{{- end }}
+
+{{- if and .Values.monsterUi.enabled .Values.monsterUi.service.enabled (ne .Values.monsterUi.service.type "none") }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kazoo.service" (dict "ctx" . "name" "monsterUi") }}
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.monsterUi.service.type }}
+  selector:
+    {{- include "kazoo.selectorLabels" . | nindent 4 }}
+    component: monster-ui
+  ports:
+    - name: http
+      port: {{ .Values.monsterUi.service.port }}
+      targetPort: {{ .Values.monsterUi.service.targetPort }}
+      protocol: TCP
+      {{- if and (eq .Values.monsterUi.service.type "NodePort") (.Values.monsterUi.service.nodePort) }}
+      nodePort: {{ .Values.monsterUi.service.nodePort }}
+      {{- end }}
+{{- end }}
+
+---
+# Kamailio SIP (in-cluster). External reachability is handled by the pod
+# hostPorts when kamailio.external.type=hostPort, or by the NodePort on this
+# Service when type=nodePort.
+{{- if and .Values.kamailio.enabled .Values.kamailio.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kazoo.service" (dict "ctx" . "name" "kamailio") }}
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.kamailio.service.type }}
+  selector:
+    {{- include "kazoo.selectorLabels" . | nindent 4 }}
+    component: kamailio
+  {{- if and (eq .Values.kamailio.external.type "nodePort") (eq .Values.kamailio.service.type "NodePort") }}
+  externalTrafficPolicy: Local
+  {{- end }}
+  ports:
+    - name: sip-udp
+      port: {{ .Values.kamailio.service.udp }}
+      protocol: UDP
+      {{- if and (eq .Values.kamailio.external.type "nodePort") (eq .Values.kamailio.service.type "NodePort") }}
+      nodePort: {{ .Values.kamailio.external.nodePort }}
+      {{- end }}
+    - name: sip-tcp
+      port: {{ .Values.kamailio.service.tcp }}
+      protocol: TCP
+      {{- if and (eq .Values.kamailio.external.type "nodePort") (eq .Values.kamailio.service.type "NodePort") }}
+      nodePort: {{ .Values.kamailio.external.nodePort }}
+      {{- end }}
+    - name: sip-tls-udp
+      port: {{ .Values.kamailio.service.tls }}
+      protocol: UDP
+    - name: sip-tls-tcp
+      port: {{ .Values.kamailio.service.tls }}
+      protocol: TCP
+    - name: ws-udp
+      port: {{ .Values.kamailio.service.ws }}
+      protocol: UDP
+    - name: ws-tcp
+      port: {{ .Values.kamailio.service.ws }}
+      protocol: TCP
+{{- end }}
+
+---
+# FreeSWITCH SIP + Erlang dist. `<freeswitch service name>` resolves in-cluster
+# for the kamailio dispatcher ("sip:freeswitch:11000"); ecallmgr reaches the
+# switch via the subdomain "freeswitch.kazoo" (headless) -> pod IP:8031 directly.
+{{- if and .Values.freeswitch.enabled .Values.freeswitch.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kazoo.service" (dict "ctx" . "name" "freeswitch") }}
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.freeswitch.service.type }}
+  selector:
+    {{- include "kazoo.selectorLabels" . | nindent 4 }}
+    component: freeswitch
+  ports:
+    - name: sip-udp
+      port: {{ .Values.freeswitch.sipPort }}
+      protocol: UDP
+    - name: sip-tcp
+      port: {{ .Values.freeswitch.sipPort }}
+      protocol: TCP
+    - name: erlang-dist
+      port: {{ .Values.freeswitch.erlangDistPort }}
+      protocol: TCP
+    - name: epmd
+      port: 4369
+      protocol: TCP
+{{- end }}

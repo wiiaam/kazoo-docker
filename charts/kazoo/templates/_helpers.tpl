@@ -1,0 +1,116 @@
+{{- define "kazoo.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "kazoo.fullname" -}}
+{{- if .Values.fullnameOverride -}}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $name := default .Chart.Name .Values.nameOverride -}}
+{{- if contains $name .Release.Name -}}
+{{- printf "%s" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "kazoo.labels" -}}
+app.kubernetes.io/name: {{ include "kazoo.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/part-of: {{ include "kazoo.name" . }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{- end -}}
+
+{{- define "kazoo.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "kazoo.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
+# component selector label shared by every pod in the stack
+{{- define "kazoo.componentLabels" -}}
+app: {{ include "kazoo.name" . }}
+{{- end -}}
+
+# image string for a component: a flat "repository:tag" (or "host/repo:tag")
+# in values.yaml, with optional global.imageRegistry prepended when set
+# (replaces the leading registry of a full image ref, keeps the repo path).
+# usage: {{ include "kazoo.image" (dict "ctx" . "name" "couchdb") }}
+{{- define "kazoo.image" -}}
+{{- $name := .name -}}
+{{- $ctx := .ctx -}}
+{{- $img := index $ctx.Values $name -}}
+{{- $reg := $ctx.Values.global.imageRegistry -}}
+{{- if $reg -}}
+{{- $ref := $img.image | toString -}}
+{{- if contains "/" $ref -}}
+{{- printf "%s/%s" $reg (trimPrefix (printf "%s/" (first (splitList "/" $ref))) $ref) -}}
+{{- else -}}
+{{- printf "%s/%s" $reg $ref -}}
+{{- end -}}
+{{- else -}}
+{{- printf "%s" $img.image -}}
+{{- end -}}
+{{- end -}}
+
+# imagePullPolicy for every container (single global knob)
+{{- define "kazoo.imagePullPolicy" -}}
+{{- .Values.global.imagePullPolicy -}}
+{{- end -}}
+
+# container imagePullSecrets block (omitted when empty)
+{{- define "kazoo.imagePullSecrets" -}}
+{{- if .Values.global.imagePullSecrets -}}
+imagePullSecrets:
+{{- range .Values.global.imagePullSecrets }}
+  - name: {{ .name }}
+{{- end }}
+{{- end -}}
+{{- end -}}
+
+# Secret data lookups -- allow --set secrets.* as plain strings
+{{- define "kazoo.secret.name" -}}
+{{- printf "%s-secrets" (include "kazoo.fullname" .) -}}
+{{- end -}}
+
+{{- define "kazoo.secretValue" -}}
+{{- printf "%s" . | toString -}}
+{{- end -}}
+
+# Service name from values.<component>.service.name -- the in-cluster DNS name
+# pods use (RABBIT_HOST/COUCH_HOST/...). Falls back to the bare component key
+# when the map is absent so the chart stays renderable with minimal values.
+# usage: {{ include "kazoo.service" (dict "ctx" . "name" "couchdb") }}
+{{- define "kazoo.service" -}}
+{{- $name := .name -}}
+{{- $ctx := .ctx -}}
+{{- $comp := default (dict) (index $ctx.Values $name) -}}
+{{- $svcName := default $name (index (default (dict) $comp.service) "name") -}}
+{{- printf "%s" $svcName -}}
+{{- end -}}
+
+# Headless Service name backing the subdomain (values.subdomain)
+{{- define "kazoo.subdomainSvc" -}}
+{{- include "kazoo.fullname" . -}}
+{{- end -}}
+
+# The in-cluster FQDN suffix for subdomain-based node names, e.g.
+# "kazoo.default.svc.cluster.local"
+{{- define "kazoo.subdomainFqdnSuffix" -}}
+{{- printf "%s.%s.svc.cluster.local" .Values.subdomain .Release.Namespace -}}
+{{- end -}}
+
+# Probe helper: readinessProbe from "cmd" strings (compose healthchecks)
+{{- define "kazoo.execProbe" -}}
+readinessProbe:
+  exec:
+    command:
+{{- range $c := .cmd }}
+      - {{ $c | quote }}
+{{- end }}
+  initialDelaySeconds: {{ .initialDelaySeconds | default 5 }}
+  periodSeconds: {{ .periodSeconds | default 10 }}
+  timeoutSeconds: {{ .timeoutSeconds | default 5 }}
+  retries: {{ .retries | default 6 }}
+{{- end -}}

@@ -1,0 +1,98 @@
+{{- if .Values.kamailio.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kazoo.fullname" . }}-kamailio
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.kamailio.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kazoo.selectorLabels" . | nindent 6 }}
+      component: kamailio
+  template:
+    metadata:
+      labels:
+        {{- include "kazoo.selectorLabels" . | nindent 8 }}
+        component: kamailio
+        app: {{ include "kazoo.name" . }}
+    spec:
+      {{- include "kazoo.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: {{ .Chart.Name }}-kamailio
+          image: {{ include "kazoo.image" (dict "ctx" . "name" "kamailio") }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          env:
+            - name: DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: masterRealm
+            - name: ADVERTISE_IP
+              value: {{ .Values.kamailio.advertiseIP | quote }}
+            - name: RABBIT_HOST
+              value: {{ include "kazoo.service" (dict "ctx" . "name" "rabbitmq") }}
+            - name: RABBIT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: rabbitUser
+            - name: RABBIT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: rabbitPass
+            - name: PG_HOST
+              value: {{ include "kazoo.service" (dict "ctx" . "name" "postgres") }}
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: postgresUser
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: postgresPass
+            - name: PG_DB
+              value: kamailio
+            - name: FREESWITCH_SIP_ADDRESS
+              value: {{ printf "%s:%d" (include "kazoo.service" (dict "ctx" . "name" "freeswitch")) (int .Values.freeswitch.sipPort) }}
+            - name: KAMAILIO_SHM_MEMORY
+              value: {{ .Values.kamailio.shmMemory | quote }}
+            - name: KAMAILIO_PKG_MEMORY
+              value: {{ .Values.kamailio.pkgMemory | quote }}
+          ports:
+            - name: sip-udp
+              containerPort: 5060
+              protocol: UDP
+              {{- if eq .Values.kamailio.external.type "hostPort" }}
+              hostPort: {{ .Values.kamailio.external.hostPort }}
+              {{- end }}
+            - name: sip-tcp
+              containerPort: 5060
+              protocol: TCP
+              {{- if eq .Values.kamailio.external.type "hostPort" }}
+              hostPort: {{ .Values.kamailio.external.hostPort }}
+              {{- end }}
+            - name: sip-tls-udp
+              containerPort: 5061
+              protocol: UDP
+            - name: sip-tls-tcp
+              containerPort: 5061
+              protocol: TCP
+            - name: ws-udp
+              containerPort: 7000
+              protocol: UDP
+            - name: ws-tcp
+              containerPort: 7000
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: 5060
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+{{- end }}

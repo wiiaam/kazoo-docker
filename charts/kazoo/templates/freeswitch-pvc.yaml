@@ -1,0 +1,32 @@
+{{- if .Values.freeswitch.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kazoo.fullname" . }}-freeswitch-data
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.freeswitch.storage.storageClass }}
+  storageClassName: {{ .Values.freeswitch.storage.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.freeswitch.storage.dataSize }}
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kazoo.fullname" . }}-freeswitch-log
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.freeswitch.storage.storageClass }}
+  storageClassName: {{ .Values.freeswitch.storage.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.freeswitch.storage.logSize }}
+{{- end }}

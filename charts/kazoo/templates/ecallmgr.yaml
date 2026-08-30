@@ -1,0 +1,67 @@
+{{- if .Values.kazooCore.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kazoo.fullname" . }}-ecallmgr
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.kazooCore.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kazoo.selectorLabels" . | nindent 6 }}
+      component: ecallmgr
+  template:
+    metadata:
+      labels:
+        {{- include "kazoo.selectorLabels" . | nindent 8 }}
+        component: ecallmgr
+    spec:
+      {{- include "kazoo.imagePullSecrets" . | nindent 6 }}
+      hostname: ecallmgr
+      subdomain: {{ .Values.subdomain }}
+      setHostnameAsFQDN: true
+      containers:
+        - name: {{ .Chart.Name }}-ecallmgr
+          image: {{ include "kazoo.image" (dict "ctx" . "name" "kazooCore") }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          env:
+            - name: KAZOO_NODE
+              value: ecallmgr
+            - name: ERLANG_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: erlangCookie
+            - name: RABBIT_HOST
+              value: {{ include "kazoo.service" (dict "ctx" . "name" "rabbitmq") }}
+            - name: RABBIT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: rabbitUser
+            - name: RABBIT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: rabbitPass
+            - name: COUCH_HOST
+              value: {{ include "kazoo.service" (dict "ctx" . "name" "couchdb") }}
+            - name: COUCH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: couchUser
+            - name: COUCH_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: couchPass
+          readinessProbe:
+            exec:
+              command: ["/opt/kazoo/bin/sup", "-n", "ecallmgr", "kz_nodes", "status"]
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 20
+{{- end }}

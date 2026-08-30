@@ -1,0 +1,68 @@
+{{- if .Values.monsterUi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kazoo.fullname" . }}-monster-ui
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.monsterUi.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kazoo.selectorLabels" . | nindent 6 }}
+      component: monster-ui
+  template:
+    metadata:
+      labels:
+        {{- include "kazoo.selectorLabels" . | nindent 8 }}
+        component: monster-ui
+    spec:
+      {{- include "kazoo.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.shared.enabled }}
+      initContainers:
+        - name: chown-shared
+          image: {{ include "kazoo.image" (dict "ctx" . "name" "monsterUi") }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - "mkdir -p /shared/apps && chmod 777 /shared && chmod -R a+rwX /shared/apps 2>/dev/null || true"
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}-monster-ui
+          image: {{ include "kazoo.image" (dict "ctx" . "name" "monsterUi") }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          env:
+            - name: WHITELABEL_NAME
+              value: {{ .Values.monsterUi.whitelabelName | quote }}
+            - name: APPLICATION_TITLE
+              value: {{ .Values.monsterUi.applicationTitle | quote }}
+            {{- if .Values.monsterUi.apiUrl }}
+            - name: API_URL
+              value: {{ .Values.monsterUi.apiUrl | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "wget -qO- http://127.0.0.1/ping >/dev/null || exit 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          {{- if .Values.shared.enabled }}
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+          {{- end }}
+      {{- if .Values.shared.enabled }}
+      volumes:
+        - name: shared
+          persistentVolumeClaim:
+            claimName: {{ include "kazoo.fullname" . }}-shared
+      {{- end }}
+{{- end }}

@@ -1,0 +1,65 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kazoo.fullname" . }}-postgres
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "kazoo.service" (dict "ctx" . "name" "postgres") }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kazoo.selectorLabels" . | nindent 6 }}
+      component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "kazoo.selectorLabels" . | nindent 8 }}
+        component: postgres
+    spec:
+      {{- include "kazoo.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: postgres
+          image: {{ include "kazoo.image" (dict "ctx" . "name" "postgres") }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          command: ["postgres", "-c", {{ printf "max_connections=%d" (int .Values.postgres.maxConnections) | quote }}]
+          env:
+            - name: POSTGRES_DB
+              value: kazoo
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: postgresUser
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: postgresPass
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.secrets.postgresUser | quote }}, "-d", "kazoo"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.postgres.storage.storageClass }}
+        storageClassName: {{ .Values.postgres.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage.size }}
+{{- end }}

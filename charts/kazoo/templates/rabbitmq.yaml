@@ -1,0 +1,65 @@
+{{- if .Values.rabbitmq.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kazoo.fullname" . }}-rabbitmq
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "kazoo.service" (dict "ctx" . "name" "rabbitmq") }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kazoo.selectorLabels" . | nindent 6 }}
+      component: rabbitmq
+  template:
+    metadata:
+      labels:
+        {{- include "kazoo.selectorLabels" . | nindent 8 }}
+        component: rabbitmq
+    spec:
+      {{- include "kazoo.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: rabbitmq
+          image: {{ include "kazoo.image" (dict "ctx" . "name" "rabbitmq") }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: rabbitUser
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kazoo.secret.name" . }}
+                  key: rabbitPass
+          ports:
+            - name: amqp
+              containerPort: 5672
+              protocol: TCP
+            - name: management
+              containerPort: {{ .Values.rabbitmq.service.mgmtPort }}
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.rabbitmq.storage.storageClass }}
+        storageClassName: {{ .Values.rabbitmq.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.rabbitmq.storage.size }}
+{{- end }}

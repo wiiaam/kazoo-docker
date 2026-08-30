@@ -1,0 +1,225 @@
+# Kazoo Classic 4.3 Helm chart -- default values.
+#
+# The chart mirrors compose.yaml 1:1: same services, same env vars the
+# images' entrypoints already render. See NOTES.txt after `helm install`.
+# Structure follows the kube-prometheus-stack conventions: one section per
+# component, each carrying its own enabled / image / service / storage knobs.
+
+## Provide a name in place of "kazoo" for `app:` labels
+##
+nameOverride: ""
+
+## Provide a name to substitute for the full names of resources
+##
+fullnameOverride: ""
+
+##
+global:
+  ## Global image registry. When set (non-empty) it is prepended to EVERY
+  ## image (incl. the official Docker Hub data-plane images). Leave empty to
+  ## use each component's own `registry` default.
+  ##
+  imageRegistry: ""
+  ## Set the pull policy for every kazoo/data-plane container image.
+  ##
+  imagePullPolicy: IfNotPresent
+
+  ## Reference to one or more secrets to be used when pulling images
+  ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+  ##
+  imagePullSecrets: []
+  # - name: "image-pull-secret"
+
+# ---------------------------------------------------------------------------
+# Shared credentials/secret domain. Change-me defaults keep `helm template`
+# renderable; set real values on install.
+# ---------------------------------------------------------------------------
+secrets:
+  erlangCookie: change_me_cookie
+  rabbitUser: kazoo
+  rabbitPass: change_me_rabbit
+  couchUser: admin
+  couchPass: change_me_couch
+  couchSecret: change_me_couch_secret
+  postgresUser: kamailio
+  postgresPass: change_me_pg
+  masterAccountName: Master Account
+  masterRealm: sip.example.local
+  masterUser: administrator
+  masterPass: change_me_master
+
+# ---------------------------------------------------------------------------
+# Subdomain DNS: pods get hostname.* + setHostnameAsFQDN behind a headless
+# Service so `hostname -f` is dotted (Erlang long-name requirement) and
+# "<svc>.kazoo" resolves from other pods (mirrors compose hostnames).
+# ---------------------------------------------------------------------------
+subdomain: kazoo
+
+# ---------------------------------------------------------------------------
+# Shared Monster-UI app-metadata volume (ReadWriteMany). kazoo-apps registers
+# the apps with Crossbar once monster-ui copies them here.
+# ---------------------------------------------------------------------------
+shared:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteMany
+  size: 1Gi
+
+# ---------------------------------------------------------------------------
+# CouchDB (official Docker Hub image).
+# ref: https://hub.docker.com/_/couchdb
+# ---------------------------------------------------------------------------
+couchdb:
+  enabled: true
+  image: couchdb:3.2.3
+  service:
+    enabled: true
+    type: ClusterIP
+    ## Service name -- also the in-cluster DNS name kazoo uses as its Couch
+    ## host. Set a custom one if you run several stacks in one namespace.
+    name: couchdb
+    port: 5984
+  storage:
+    storageClass: ""
+    size: 10Gi
+
+# ---------------------------------------------------------------------------
+# RabbitMQ (official Docker Hub image). Single node, shared vhost "/".
+# ---------------------------------------------------------------------------
+rabbitmq:
+  enabled: true
+  image: rabbitmq:3.13.7-management
+  service:
+    enabled: true
+    type: ClusterIP
+    name: rabbitmq
+    port: 5672
+    mgmtPort: 15672
+  storage:
+    storageClass: ""
+    size: 2Gi
+
+# ---------------------------------------------------------------------------
+# PostgreSQL (official Docker Hub image) -- kamailio's location/subscriber DB.
+# ---------------------------------------------------------------------------
+postgres:
+  enabled: true
+  image: postgres:13
+  maxConnections: 1000
+  service:
+    enabled: true
+    type: ClusterIP
+    name: postgres
+    port: 5432
+  storage:
+    storageClass: ""
+    size: 5Gi
+
+# ---------------------------------------------------------------------------
+# Kazoo core image -- two roles from the same image, selected by KAZOO_NODE:
+#   kazoo-apps (Crossbar REST API, runs kazoo-init.sh bootstrap)
+#   ecallmgr   (media controller, owns the FreeSWITCH connection)
+# Service here is the Crossbar API endpoint served by the kazoo-apps pod.
+# ---------------------------------------------------------------------------
+kazooCore:
+  enabled: true
+  image: ghcr.io/wiiaam/kazoo-core:latest
+  replicaCount: 1
+  service:
+    enabled: true
+    type: ClusterIP   # ClusterIP | NodePort | none (none = port-forward only)
+    name: crossbar
+    port: 8000
+    targetPort: 8000
+    nodePort: ""
+
+# ---------------------------------------------------------------------------
+# Kamailio -- SIP edge/proxy. Registration + location live in its PostgreSQL.
+# ---------------------------------------------------------------------------
+kamailio:
+  enabled: true
+  image: ghcr.io/wiiaam/kazoo-kamailio:latest
+  replicaCount: 1
+  ## Address kamailio advertises in Via/Contact/Record-Route -- what phones
+  ## actually send packets back to. In hostPort/nodePort expose mode set this
+  ## to the node's LAN IP (or LB address). Empty -> entrypoint picks pod IP.
+  advertiseIP: ""
+  ## Phones must reach kamailio exactly at advertiseIP:5060 (the Contact/ACK
+  ## route), so the default expose mode is hostPort which preserves :5060 on
+  ## the node. `nodePort` mode needs advertisePort set to match.
+  external:
+    type: hostPort   # hostPort | nodePort | none
+    hostPort: 5060
+    nodePort: 30060
+    advertisePort: 5060
+  ## Shared memory / pkg memory for the kamailio process
+  shmMemory: 256
+  pkgMemory: 16
+  service:
+    enabled: true
+    type: NodePort   # ClusterIP | NodePort (NodePort only used when external.type=nodePort)
+    name: kamailio
+    udp: 5060
+    tcp: 5060
+    tls: 5061
+    ws: 7000
+
+# ---------------------------------------------------------------------------
+# FreeSWITCH + mod_kazoo. SIP + RTP are only reachable from outside the
+# cluster with hostNetwork or hostPort external mode.
+# ---------------------------------------------------------------------------
+freeswitch:
+  enabled: true
+  image: ghcr.io/wiiaam/kazoo-freeswitch:latest
+  replicaCount: 1
+  ## Range published / bound for RTP media.
+  rtpStartPort: 16384
+  rtpEndPort: 16512
+  ## SIP + Erlang dist ports (also the in-cluster service ports below).
+  sipPort: 11000
+  erlangDistPort: 8031
+  ## IP advertised for SIP signaling (KAZOO_ADDRESS/KAZOO_LOCAL_ADDRESS) and
+  ## for RTP (EXT_RTP_IP). Empty -> pod IP (in-cluster only).
+  publicIP: ""
+  extRtpIP: ""
+  ## How to expose SIP + RTP to phones outside the cluster. `none` = ClusterIP
+  ## only (no inbound media). `hostNetwork` binds FS directly to node ports
+  ## (SIP 11000 + the RTP slice) -- best for a single-node lab. `hostPort`
+  ## maps SIP 11000 + the RTP slice onto the node.
+  external:
+    type: none        # hostNetwork | hostPort | none
+    hostPortSip: 11000
+  ## Erlang dist long name + what ecallmgr is seeded to ping. Default keeps
+  ## the classic compose identity; "<node>.kazoo" resolves via subdomain DNS.
+  nodeName: freeswitch@freeswitch.kazoo
+  service:
+    enabled: true
+    type: ClusterIP
+    name: freeswitch
+  storage:
+    storageClass: ""
+    dataSize: 2Gi
+    logSize: 1Gi
+
+# ---------------------------------------------------------------------------
+# Monster-UI -- static SPA served by nginx; a pure Crossbar REST client.
+# ---------------------------------------------------------------------------
+monsterUi:
+  enabled: true
+  image: ghcr.io/wiiaam/kazoo-monster-ui:latest
+  replicaCount: 1
+  whitelabelName: Kazoo
+  applicationTitle: Kazoo Classic
+  ## Overrides the browser-default http://<browser-host>:8000/v2/ in js/config.js.
+  ## Only needed when Crossbar is proxied behind an LB.
+  apiUrl: ""
+  ## Browser-reachable Crossbar base baked into each Monster-UI app registry
+  ## entry (kazoo-init init_apps). Must be reachable from the BROWSER.
+  crossbarApiUrl: http://localhost:8000/v2
+  service:
+    enabled: true
+    type: ClusterIP   # ClusterIP | NodePort | none
+    name: monster-ui
+    port: 8080
+    targetPort: 80
+    nodePort: ""
