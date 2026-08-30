@@ -138,6 +138,22 @@ Shared values that everything hangs on (real values live in `.env`):
   schema if empty → seeds `dispatcher` setid 1 → patches `local.cfg` +
   `advertise` → execs kamailio.
 
+## GHCR builds (GitHub Actions)
+
+- One workflow per image (`kazoo-core`, `kazoo-freeswitch`, `kazoo-kamailio`,
+  `kazoo-monster-ui`), each scoped by `paths:` to its own `images/<dir>/**` so
+  a push only rebuilds the image that actually changed. Push → build + push;
+  pull requests → build only (no push). `workflow_dispatch` for manual rebuilds.
+- Image names: `kazoo-core`, `kazoo-freeswitch`, `kazoo-kamailio`,
+  `kazoo-monster-ui` (dirs `images/kazoo-core`, `images/kazoo-freeswitch`,
+  `images/kamailio`, `images/monster-ui`). All builds are source-based from
+  public URLs (git clones + release tarballs), so GitHub-hosted runners need
+  no extra creds.
+- Tags: everything is tagged `latest` for now (proper version tagging pending).
+  GHA cache (`type=gha`, scope `<image>`) is shared, so PR builds are fast.
+- Pushed packages are private by default in GHCR — set the repo/package
+  visibility to public (or configure your k8s-imagePullSecrets) to pull them.
+
 ## Key files / touch points
 
 | Concern | File |
