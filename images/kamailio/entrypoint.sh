@@ -135,8 +135,24 @@ log "patching $LOCAL_CFG"
 # network they differ, and getting ADVERTISE_IP wrong is what breaks
 # in-dialog requests (ACK/BYE) since those route using the advertised
 # Contact, not the original bind address.
-BIND_IP="$(hostname -i 2>/dev/null | awk '{print $1}')"
-: "${BIND_IP:=$ADVERTISE_IP}"
+# BIND_IP: what kamailio binds its listeners to.
+#   empty (default) -> 0.0.0.0, i.e. bind on ALL interfaces -- always safe.
+#              Binding a specific address (esp. the IPv6 ULA that `hostname -i`
+#              lists first on dual-stack k8s pods) can fail with "Cannot
+#              assign requested address" + crashloop on a v4-only underlay.
+#   0.0.0.0  -> all IPv4 interfaces    [::] -> all IPv6 interfaces
+#   dual     -> both stacks (IPv4 all, IPv6 [::] sockets appended below)
+#   <addr>   -> that one address (advanced / plain-IP hosts only)
+: "${BIND_IP:=0.0.0.0}"
+
+BIND_IP_V6=""
+if [ "$BIND_IP" = "dual" ]; then
+    BIND_IP="0.0.0.0"
+    BIND_IP_V6="[::]"
+fi
+if [ "$BIND_IP" = "::" ]; then
+    BIND_IP="[::]"
+fi
 if [ "$ADVERTISE_IP" = "127.0.0.1" ]; then
     ADVERTISE_IP="$BIND_IP"
 fi
@@ -165,6 +181,20 @@ for _port in 5060 7000; do
         -e "s#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port}\!g#\!TCP_SIP\!tcp:MY_IP_ADDRESS:${_port} advertise ${ADVERTISE_IP}:${_port}\!g#" \
         "$LOCAL_CFG" || true
 done
+
+# BIND_IP=dual: additionally listen on [::] (all IPv6) for the SIP + WS ports.
+# Appended listen= lines are processed like any other in the main config, so
+# the v4 (0.0.0.0) and v6 sockets coexist on the same ports.
+if [ -n "$BIND_IP_V6" ]; then
+    log "adding IPv6 listeners on ${BIND_IP_V6}"
+    {
+        printf '\n# dual-stack IPv6 listeners (BIND_IP=dual)\n'
+        for _port in 5060 7000; do
+            printf 'listen=udp:%s:%s advertise %s:%s\n' "$BIND_IP_V6" "$_port" "$ADVERTISE_IP" "$_port"
+            printf 'listen=tcp:%s:%s advertise %s:%s\n' "$BIND_IP_V6" "$_port" "$ADVERTISE_IP" "$_port"
+        done
+    } >>"$LOCAL_CFG"
+fi
 log "advertising ${ADVERTISE_IP} on kamailio listen sockets"
 
 # When BIND_IP and ADVERTISE_IP differ (any NAT/bridge/LB in front of
