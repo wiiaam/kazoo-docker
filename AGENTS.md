@@ -189,11 +189,20 @@ Shared values that everything hangs on (real values live in `.env`):
   `kamailio`, `freeswitch`, `monster-ui`); override e.g.
   `--set freeswitch.service.name=fs0` and the env wiring (`RABBIT_HOST`,
   `COUCH_HOST`, `FREESWITCH_SIP_ADDRESS`, ...) follows automatically.
-- Expose model (`values.yaml`): kamailio `external.type` defaults to `hostPort`
-  (host-reachable 5060/5061/7000), fallback `nodePort` (minikube/kind) or
-  `none` (port-forward). FreeSWITCH `external.type` defaults to `none`
-  (in-cluster); `hostPort` exports SIP 11000 + the RTP slice 16384-16512, and
-  `hostNetwork` is also available (true L3, RTP straight on the host).
+- Expose model (`values.yaml`): genuinely generic — `<comp>.service.{type,
+  labels,annotations,externalTrafficPolicy,loadBalancerIP,loadBalancerSourceRanges}`
+  pass straight through to the Service (most-charts style), so LB pool
+  selection / IP pinning live in the user's `service.labels`/`service.annotations`
+  (e.g. Cilium LB-IPAM). Default `ClusterIP`; expose kamailio/freeswitch with
+  `service.type: LoadBalancer`. Kamailio keeps SIP 5060 (set
+  `kamailio.advertiseIP` at the LB). FreeSWITCH `freeswitch.service.includeRtp:
+  true` appends the RTP slice 16384-16512 to the same Service (SIP 11000 +
+  dist 8031 already there) — a single WAN-DNAT target, no node pinning.
+  Pod-level hostPort/hostNetwork remain only for single-node labs
+  (`kamailio.external.type`, `freeswitch.external.type`). Advertise
+  DNS names (e.g. `sip.example.com`) for `kamailio.advertiseIP` /
+  `freeswitch.publicIP` / `extRtpIP` so node-failure/NAT-rewrite churn is
+  avoided.
 - **The phone advertise-IP caveat still applies in k8s**: kamailio needs
   `kamailio.advertiseIP` (a host-reachable IP) or in-dialog requests die
   (same root cause as `.env` `KAMAILIO_PUBLIC_IP`; tree in

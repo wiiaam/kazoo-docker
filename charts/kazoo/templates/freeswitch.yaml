@@ -91,7 +91,8 @@ spec:
             - name: epmd
               containerPort: 4369
               protocol: TCP
-            {{- if eq .Values.freeswitch.external.type "hostPort" }}
+            {{- if or (eq .Values.freeswitch.external.type "hostPort") .Values.freeswitch.service.includeRtp }}
+            {{- $extType := .Values.freeswitch.external.type }}
             {{- $rtpStart := int .Values.freeswitch.rtpStartPort }}
             {{- $rtpEnd := int .Values.freeswitch.rtpEndPort }}
             {{- $rtpCount := add (sub $rtpEnd $rtpStart) 1 | toString | int }}
@@ -99,7 +100,9 @@ spec:
             - name: rtp-{{ add $rtpStart $i }}
               containerPort: {{ add $rtpStart $i }}
               protocol: UDP
+              {{- if eq $extType "hostPort" }}
               hostPort: {{ add $rtpStart $i }}
+              {{- end }}
             {{- end }}
             {{- end }}
           readinessProbe:

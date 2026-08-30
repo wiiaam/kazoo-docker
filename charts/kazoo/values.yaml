@@ -79,6 +79,13 @@ couchdb:
     ## host. Set a custom one if you run several stacks in one namespace.
     name: couchdb
     port: 5984
+    ## Extra labels/annotations + Service spec passthrough (maps 1:1 onto the
+    ## Service resource). Repeated on every component -- see kamailio for docs.
+    labels: {}
+    annotations: {}
+    externalTrafficPolicy: ""
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
   storage:
     storageClass: ""
     size: 10Gi
@@ -95,6 +102,11 @@ rabbitmq:
     name: rabbitmq
     port: 5672
     mgmtPort: 15672
+    labels: {}
+    annotations: {}
+    externalTrafficPolicy: ""
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
   storage:
     storageClass: ""
     size: 2Gi
@@ -111,6 +123,11 @@ postgres:
     type: ClusterIP
     name: postgres
     port: 5432
+    labels: {}
+    annotations: {}
+    externalTrafficPolicy: ""
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
   storage:
     storageClass: ""
     size: 5Gi
@@ -154,6 +171,11 @@ kazooCore:
     port: 8000
     targetPort: 8000
     nodePort: ""
+    labels: {}
+    annotations: {}
+    externalTrafficPolicy: ""
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
 
 # ---------------------------------------------------------------------------
 # Kamailio -- SIP edge/proxy. Registration + location live in its PostgreSQL.
@@ -163,32 +185,45 @@ kamailio:
   image: ghcr.io/wiiaam/kazoo-kamailio:latest
   replicaCount: 1
   ## Address kamailio advertises in Via/Contact/Record-Route -- what phones
-  ## actually send packets back to. In hostPort/nodePort expose mode set this
-  ## to the node's LAN IP (or LB address). Empty -> entrypoint picks pod IP.
+  ## actually send packets back to. Phones must reach it exactly at
+  ## advertiseIP:5060. In LoadBalancer mode set this to the LB DNS name
+  ## (e.g. sip.example.com) or IP; in hostPort mode to the node's LAN IP.
+  ## Empty -> entrypoint picks pod IP (in-cluster only).
   advertiseIP: ""
-  ## Phones must reach kamailio exactly at advertiseIP:5060 (the Contact/ACK
-  ## route), so the default expose mode is hostPort which preserves :5060 on
-  ## the node. `nodePort` mode needs advertisePort set to match.
+  ## Pod-level hostPort for single-node labs (SIP 5060 straight on the node,
+  ## keep advertiseIP = node LAN IP). For a real deployment use the Service
+  ## below (type: LoadBalancer) and leave type: none here.
   external:
-    type: hostPort   # hostPort | nodePort | none
+    type: hostPort   # hostPort | none
     hostPort: 5060
-    nodePort: 30060
-    advertisePort: 5060
   ## Shared memory / pkg memory for the kamailio process
   shmMemory: 256
   pkgMemory: 16
+  ## SIP Service. Ports are fixed (5060/5061/7000); type is generic -- expose
+  ## to phones with `type: LoadBalancer` (+ labels/annotations for the LB pool
+  ## / IP). The advertised port always equals 5060, so `advertiseIP` must
+  ## resolve exactly to the LB service on :5060.
   service:
     enabled: true
-    type: NodePort   # ClusterIP | NodePort (NodePort only used when external.type=nodePort)
+    type: ClusterIP   # ClusterIP | NodePort | LoadBalancer
     name: kamailio
     udp: 5060
     tcp: 5060
     tls: 5061
     ws: 7000
+    ## Extra labels/annotations + Service spec passthrough (LB pool selection,
+    ## loadBalancerIP/IP pinning, externalTrafficPolicy, ...) -- maps 1:1 onto
+    ## the Service resource.
+    labels: {}
+    annotations: {}
+    externalTrafficPolicy: ""
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
+    nodePort: ""
 
 # ---------------------------------------------------------------------------
-# FreeSWITCH + mod_kazoo. SIP + RTP are only reachable from outside the
-# cluster with hostNetwork or hostPort external mode.
+# FreeSWITCH + mod_kazoo. SIP + RTP reachable from outside the cluster via the
+# LoadBalancer Service or (single-node labs) hostPort/hostNetwork.
 # ---------------------------------------------------------------------------
 freeswitch:
   enabled: true
@@ -201,23 +236,33 @@ freeswitch:
   sipPort: 11000
   erlangDistPort: 8031
   ## IP advertised for SIP signaling (KAZOO_ADDRESS/KAZOO_LOCAL_ADDRESS) and
-  ## for RTP (EXT_RTP_IP). Empty -> pod IP (in-cluster only).
+  ## for RTP (EXT_RTP_IP). Empty -> pod IP (in-cluster only). For LoadBalancer
+  ## exposure set both to the LB DNS name (e.g. sip.example.com) so phones get
+  ## the right SDP/calling-party address.
   publicIP: ""
   extRtpIP: ""
-  ## How to expose SIP + RTP to phones outside the cluster. `none` = ClusterIP
-  ## only (no inbound media). `hostNetwork` binds FS directly to node ports
-  ## (SIP 11000 + the RTP slice) -- best for a single-node lab. `hostPort`
-  ## maps SIP 11000 + the RTP slice onto the node.
+  ## Pod-level network knobs for single-node labs. Leave type: none and use the
+  ## Service below (type: LoadBalancer) for real deployments.
   external:
     type: none        # hostNetwork | hostPort | none
     hostPortSip: 11000
   ## Erlang dist long name + what ecallmgr is seeded to ping. Default keeps
   ## the classic compose identity; "<node>.kazoo" resolves via subdomain DNS.
   nodeName: freeswitch@freeswitch.kazoo
+  ## FreeSWITCH Service. It already carries SIP 11000 + Erlang dist (8031, for
+  ## ecallmgr) in-cluster. `includeRtp: true` appends the RTP slice
+  ## (16384-16512) -- set that with type: LoadBalancer to expose media for WAN
+  ## DNAT. labels/annotations/spec extras pass through to the Service.
   service:
     enabled: true
-    type: ClusterIP
+    type: ClusterIP   # ClusterIP | LoadBalancer
     name: freeswitch
+    includeRtp: false
+    labels: {}
+    annotations: {}
+    externalTrafficPolicy: ""
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
   storage:
     storageClass: ""
     dataSize: 2Gi
@@ -266,3 +311,8 @@ monsterUi:
     port: 8080
     targetPort: 80
     nodePort: ""
+    labels: {}
+    annotations: {}
+    externalTrafficPolicy: ""
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []

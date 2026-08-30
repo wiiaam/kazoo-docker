@@ -63,19 +63,24 @@ HTTPRoute rules (matches/filters/backendRefs) go in <comp>.httpRoute.rules.
 Phones MUST reach kamailio at the exact address it advertises in
 Via/Contact/Record-Route, or registrations time out and in-dialog BYE/ACK die.
 
-  * kamailio.external.type=hostPort (default) exposes 5060 on the node:
-    set kamailio.advertiseIP to the node's LAN IP. Phones register to
-    sip:<user>@<nodeIP>:5060;transport=tcp.
-  * type=nodePort switches routing to a NodePort service; set
-    kamailio.advertiseIP to the node IP AND kamailio.external.advertisePort
-    to the nodePort so Contacts carry the right port.
+The component Services are generic: set <comp>.service.type +
+labels/annotations + spec extras and they pass straight through to the Service
+resource (LB pool selection / IP pinning / externalTrafficPolicy all live
+there). Ports on the Services are fixed, so what you advertise is:
 
-For FreeSWITCH media (RTP) + SIP 11000 you must pick an expose mode too:
-  * freeswitch.external.type=hostNetwork binds the pod to the node -- the
-    quickest for a single-node lab. Set freeswitch.publicIP (and extRtpIP if
-    different) to the node IP.
-  * type=hostPort maps SIP 11000 + the RTP slice (16384-16512) onto the node.
-  * type=none (default) is in-cluster only -- phones outside can't reach RTP.
+  * kamailio.service.type=LoadBalancer (recommended): give the SIP Service an
+    LB IP (e.g. Cilium LB-IPAM -- pick the pool with
+    kamailio.service.labels/annotations). Set kamailio.advertiseIP to the LB
+    DNS name (sip.example.com); the Service keeps SIP on 5060 so Contacts
+    match. Your router/firewall DNATs WAN 5060 into the LB IP.
+  * For FreeSWITCH media: freeswitch.service.type=LoadBalancer +
+    freeswitch.service.includeRtp=true exposes SIP 11000 + the RTP slice
+    (16384-16512) on the same LB. Advertise freeswitch.publicIP (and extRtpIP
+    if different) at that DNS name; DNAT WAN SIP+RTP into the LB IP.
+  * Single-node lab only: kamailio.external.type=hostPort (SIP 5060 on the
+    node, kamailio.advertiseIP = node LAN IP) and
+    freeswitch.external.type=hostPort / hostNetwork. type: none (default) is
+    in-cluster only -- phones outside cannot reach RTP.
 
 ## 7. Notes / limitations
   * This chart is single-replica: CouchDB/RabbitMQ/PostgreSQL are one-node
