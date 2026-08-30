@@ -22,8 +22,11 @@ EXT_RTP_IP="${EXT_RTP_IP:-$KAZOO_ADDRESS}"
 # Must be freeswitch@<dotted fqdn>: Erlang long-name dist (shortname=false)
 # requires a dot in the host portion, and kazoo's kz_dist.erl special-cases a
 # node literally named "freeswitch". Compose sets `hostname:` to a dotted
-# alias so `hostname -f` here matches what ecallmgr sees.
-KAZOO_NODENAME="freeswitch@$(hostname -f)"
+# alias so `hostname -f` here matches what ecallmgr sees. On Kubernetes the
+# pod hostname is set via KAZOO_NODENAME because k8s pod hostnames are
+# single labels -- set spec.hostname/subdomain + headless Service to make
+# "<node>.kazoo" DNS-resolvable, then pass the same name explicitly here.
+: "${KAZOO_NODENAME:=freeswitch@$(hostname -f)}"
 KAZOO_PORT="${KAZOO_PORT:-8031}"
 EVENT_BIND_IP="${EVENT_BIND_IP:-0.0.0.0}"
 EVENT_PORT="${EVENT_PORT:-8021}"

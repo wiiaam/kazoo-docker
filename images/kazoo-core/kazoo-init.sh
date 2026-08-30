@@ -16,6 +16,7 @@ set -euo pipefail
 : "${MASTER_USER:?MASTER_USER must be set}"
 : "${MASTER_PASS:?MASTER_PASS must be set}"
 : "${CROSSBAR_API_URL:?CROSSBAR_API_URL must be set}"
+: "${FS_NODE_NAME:=freeswitch@freeswitch.kazoo}"
 : "${COUCH_USER:?COUCH_USER must be set}"
 : "${COUCH_PASS:?COUCH_PASS must be set}"
 : "${COUCH_HOST:=127.0.0.1}"
@@ -41,9 +42,9 @@ ensure_ecallmgr_fs_nodes() {
     echo "kazoo-init: ecallmgr fs_nodes already configured"
     return 0
   fi
-  printf '%s' "${doc}" \
-    | sed '0,/"default": {/s//"default": {\n        "fs_nodes": [ "freeswitch@freeswitch.kazoo" ],/' \
-    | curl -sf -X PUT -H "Content-Type: application/json" --data-binary @- "${couch}/system_config/ecallmgr" \
+printf '%s' "${doc}" \
+      | sed "0,/\"default\": {/s//\"default\": {\n        \"fs_nodes\": [ \"${FS_NODE_NAME}\" ],/" \
+      | curl -sf -X PUT -H "Content-Type: application/json" --data-binary @- "${couch}/system_config/ecallmgr" \
       && echo "kazoo-init: seeded ecallmgr fs_nodes" \
       || echo "kazoo-init: WARNING - failed to seed ecallmgr fs_nodes"
 }
