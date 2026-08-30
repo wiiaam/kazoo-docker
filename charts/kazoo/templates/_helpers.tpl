@@ -59,6 +59,34 @@ app: {{ include "kazoo.name" . }}
 {{- .Values.global.imagePullPolicy -}}
 {{- end -}}
 
+# Effective Crossbar API base baked into Monster-UI app registration.
+# Explicit monsterUi.crossbarApiUrl wins; else derived from the kazooApps
+# HTTPRoute host (each app's own kazooCore.httpRoute + scheme from its tls);
+# final fallback localhost.
+{{- define "kazoo.crossbarApiUrl" -}}
+{{- if .Values.monsterUi.crossbarApiUrl -}}
+{{- .Values.monsterUi.crossbarApiUrl -}}
+{{- else if and .Values.kazooCore.httpRoute.enabled .Values.kazooCore.httpRoute.hostname -}}
+{{- printf "%s://%s/v2" (ternary "https" "http" .Values.kazooCore.httpRoute.tls) .Values.kazooCore.httpRoute.hostname -}}
+{{- else -}}
+http://localhost:8000/v2
+{{- end -}}
+{{- end -}}
+
+# HTTPRoute .spec.rules: the default backendRef rule for the component's
+# Service, followed by any user-supplied rules (matches/filters/backendRefs).
+# usage: include "kazoo.httpRouteRules" (dict "ctx" . "comp" "kazooCore"
+#   "svcName" <service helper output> "port" <service port>)
+{{- define "kazoo.httpRouteRules" -}}
+{{- $comp := .comp -}}
+{{- $ctx := .ctx -}}
+{{- $rules := list (dict "backendRefs" (list (dict "name" .svcName "port" .port))) -}}
+{{- range index $ctx.Values $comp "httpRoute" "rules" -}}
+{{- $rules = append $rules . -}}
+{{- end -}}
+{{- toYaml $rules -}}
+{{- end -}}
+
 # container imagePullSecrets block (omitted when empty)
 {{- define "kazoo.imagePullSecrets" -}}
 {{- if .Values.global.imagePullSecrets -}}

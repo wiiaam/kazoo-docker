@@ -1,0 +1,41 @@
+{{- if and .Values.kazooCore.enabled .Values.kazooCore.httpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "kazoo.fullname" . }}-crossbar
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.kazooCore.httpRoute.gateway.name }}
+      {{- if .Values.kazooCore.httpRoute.gateway.namespace }}
+      namespace: {{ .Values.kazooCore.httpRoute.gateway.namespace }}
+      {{- end }}
+  {{- if .Values.kazooCore.httpRoute.hostname }}
+  hostnames:
+    - {{ .Values.kazooCore.httpRoute.hostname }}
+  {{- end }}
+  rules:
+{{ include "kazoo.httpRouteRules" (dict "ctx" . "comp" "kazooCore" "svcName" (include "kazoo.service" (dict "ctx" . "name" "kazooCore")) "port" .Values.kazooCore.service.port) | indent 4 }}
+{{- end }}
+{{- if and .Values.monsterUi.enabled .Values.monsterUi.httpRoute.enabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "kazoo.fullname" . }}-monster-ui
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.monsterUi.httpRoute.gateway.name }}
+      {{- if .Values.monsterUi.httpRoute.gateway.namespace }}
+      namespace: {{ .Values.monsterUi.httpRoute.gateway.namespace }}
+      {{- end }}
+  {{- if .Values.monsterUi.httpRoute.hostname }}
+  hostnames:
+    - {{ .Values.monsterUi.httpRoute.hostname }}
+  {{- end }}
+  rules:
+{{ include "kazoo.httpRouteRules" (dict "ctx" . "comp" "monsterUi" "svcName" (include "kazoo.service" (dict "ctx" . "name" "monsterUi")) "port" .Values.monsterUi.service.port) | indent 4 }}
+{{- end }}

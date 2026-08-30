@@ -125,6 +125,28 @@ kazooCore:
   enabled: true
   image: ghcr.io/wiiaam/kazoo-core:latest
   replicaCount: 1
+  ## Crossbar API external access via a Gateway API HTTPRoute (optional).
+  ## Requires the Gateway API CRDs (gateway.networking.k8s.io/v1); TLS
+  ## terminates on the Gateway, not on the HTTPRoute itself. When enabled and
+  ## hostname is set, the Monster-UI Crossbar base is derived from it
+  ## (<scheme per tls>://<hostname>/v2) unless monsterUi.crossbarApiUrl is
+  ## pinned explicitly.
+  httpRoute:
+    enabled: false
+    ## External hostname. Empty = route applies to any Gateway listener host.
+    hostname: ""
+    ## Parent Gateway the route attaches to (parentRefs).
+    gateway:
+      name: kazoo
+      ## Empty = same namespace as the release.
+      namespace: ""
+    ## Scheme used when deriving the Crossbar API base (https when the
+    ## Gateway terminates TLS for this host).
+    tls: false
+    ## Extra HTTPRoute rules appended after the default backendRef rule --
+    ## full rule specs (matches/filters/backendRefs) for things like path
+    ## filtering or URL rewrites. Most-specific match wins over the default.
+    rules: []
   service:
     enabled: true
     type: ClusterIP   # ClusterIP | NodePort | none (none = port-forward only)
@@ -214,8 +236,29 @@ monsterUi:
   ## Only needed when Crossbar is proxied behind an LB.
   apiUrl: ""
   ## Browser-reachable Crossbar base baked into each Monster-UI app registry
-  ## entry (kazoo-init init_apps). Must be reachable from the BROWSER.
-  crossbarApiUrl: http://localhost:8000/v2
+  ## entry (kazoo-init init_apps). When empty it is derived automatically:
+  ##   * kazooCore.httpRoute enabled + hostname set ->
+  ##     <scheme per kazooCore.httpRoute.tls>://<hostname>/v2
+  ##   * otherwise -> http://localhost:8000/v2
+  ## Set explicitly to pin a value (e.g. your own LB) regardless of httpRoute.
+  crossbarApiUrl: ""
+  ## Monster-UI external access via a Gateway API HTTPRoute (optional).
+  ## Requires the Gateway API CRDs; TLS terminates on the Gateway.
+  httpRoute:
+    enabled: false
+    ## External hostname. Empty = route applies to any Gateway listener host.
+    hostname: ""
+    ## Parent Gateway the route attaches to (parentRefs).
+    gateway:
+      name: kazoo
+      ## Empty = same namespace as the release.
+      namespace: ""
+    ## True when the Gateway terminates TLS for this host (only affects the
+    ## scheme of browser links the Gateway rewrites; no TLS config here).
+    tls: false
+    ## Extra HTTPRoute rules appended after the default backendRef rule --
+    ## full rule specs (matches/filters/backendRefs). Most-specific match wins.
+    rules: []
   service:
     enabled: true
     type: ClusterIP   # ClusterIP | NodePort | none

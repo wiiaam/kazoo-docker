@@ -204,9 +204,21 @@ Shared values that everything hangs on (real values live in `.env`):
   kube-prometheus-stack values layout.
 - Data plane is single-replica StatefulSets (CouchDB/Rabbit/PG) + PVCs; kazoo
   apps, ecallmgr, kamailio, freeswitch, monster-ui are Deployments.
+- **HTTPRoutes** (Gateway API, per-app `<comp>.httpRoute:`, disabled by
+  default): one route per app (`kazooCore.httpRoute` → Crossbar, `monsterUi.httpRoute`),
+  each with own `enabled`/`hostname`/`gateway.{name,namespace}`/`tls` and
+  appended `rules` (full specs: matches/filters/backendRefs) merged after the
+  default backendRef rule; backendRefs follow the `<comp>.service.name`
+  overrides automatically. TLS terminates on the Gateway (`tls` only selects
+  the derived-URL scheme). The Crossbar base baked into Monster-UI app
+  registration is derived by `kazoo.crossbarApiUrl`: explicit
+  `monsterUi.crossbarApiUrl` wins → else
+  `<scheme>://<kazooCore.httpRoute.hostname>/v2` when that route is enabled →
+  else `http://localhost:8000/v2`.
 - Render check: `helm lint charts/kazoo` and `helm template kazoo charts/kazoo`
-  (20 manifests: 8 Services incl. headless, 5 Deployments, 3 StatefulSets,
-  3 PVCs, 1 Secret). Release name defaults to `kazoo`.
+  (20 manifests default: 8 Services incl. headless, 5 Deployments, 3
+  StatefulSets, 3 PVCs, 1 Secret; +2 HTTPRoutes when any `<comp>.httpRoute`
+  is enabled). Release name defaults to `kazoo`.
 - Image/pull defaults: each component carries a flat `image:` string — the
   four kazoo images default to the repo's GHCR packages
   (`ghcr.io/wiiaam/<image>:latest`); the data plane uses official Docker Hub
