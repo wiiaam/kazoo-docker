@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: heplify-server
+  labels:
+    app: heplify-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: heplify-server
+  template:
+    metadata:
+      labels:
+        app: heplify-server
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: k8s-worker1
+      containers:
+        - name: heplify-server
+          image: sipcapture/heplify-server
+          imagePullPolicy: IfNotPresent
+          command: ["./heplify-server"]
+          env:
+            - name: HEPLIFYSERVER_HEPADDR
+              value: "0.0.0.0:9060"
+            - name: HEPLIFYSERVER_HEPTCPADDR
+              value: "0.0.0.0:9061"
+            - name: HEPLIFYSERVER_HEPTLSADDR
+              value: ""
+            - name: HEPLIFYSERVER_DBDRIVER
+              value: "postgres"
+            - name: HEPLIFYSERVER_DBSHEMA
+              value: "homer7"
+            - name: HEPLIFYSERVER_DBADDR
+              value: "homer-db:5432"
+            - name: HEPLIFYSERVER_DBUSER
+              value: "root"
+            - name: HEPLIFYSERVER_DBPASS
+              value: "homerSeven"
+            - name: HEPLIFYSERVER_DBDATATABLE
+              value: "homer_data"
+            - name: HEPLIFYSERVER_DBCONFTABLE
+              value: "homer_config"
+            - name: HEPLIFYSERVER_DBDROPDAYS
+              value: "7"
+            - name: HEPLIFYSERVER_DBROTATE
+              value: "true"
+            - name: HEPLIFYSERVER_LOGLVL
+              value: "info"
+            - name: HEPLIFYSERVER_LOGSTD
+              value: "true"
+            - name: HEPLIFYSERVER_DEDUP
+              value: "false"
+          ports:
+            - name: hep
+              containerPort: 9060
+              protocol: UDP
+            - name: hep-tcp
+              containerPort: 9061
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: 9061
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: heplify-server
+  labels:
+    app: heplify-server
+spec:
+  selector:
+    app: heplify-server
+  ports:
+    - name: hep-udp
+      port: 9060
+      targetPort: hep
+      protocol: UDP
+    - name: hep-tcp
+      port: 9061
+      targetPort: hep-tcp
+      protocol: TCP

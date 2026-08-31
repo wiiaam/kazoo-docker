@@ -62,7 +62,7 @@ spec:
             - name: PG_DB
               value: kamailio
             - name: FREESWITCH_SIP_ADDRESS
-              value: {{ printf "%s:%d" (include "kazoo.service" (dict "ctx" . "name" "freeswitch")) (int .Values.freeswitch.sipPort) }}
+              value: {{ if .Values.freeswitch.publicIP }}{{ printf "%s:%d" .Values.freeswitch.publicIP (int .Values.freeswitch.sipPort) }}{{ else }}{{ printf "%s:%d" (include "kazoo.service" (dict "ctx" . "name" "freeswitch")) (int .Values.freeswitch.sipPort) }}{{ end }}
             - name: KAMAILIO_SHM_MEMORY
               value: {{ .Values.kamailio.shmMemory | quote }}
             - name: KAMAILIO_PKG_MEMORY
@@ -92,6 +92,11 @@ spec:
             - name: ws-tcp
               containerPort: 7000
               protocol: TCP
+          {{- if .Values.hepCapture.enabled }}
+          volumeMounts:
+            - name: hep-config
+              mountPath: /etc/heplify
+          {{- end }}
           readinessProbe:
             tcpSocket:
               port: 5060
@@ -99,4 +104,24 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 12
+        {{- if .Values.hepCapture.enabled }}
+        - name: heplify
+          image: {{ .Values.hepCapture.image }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          env:
+            - name: HEPLIFY_CONFIG
+              value: /etc/heplify/heplify.json
+          volumeMounts:
+            - name: hep-config
+              mountPath: /etc/heplify
+          securityContext:
+            capabilities:
+              add: [NET_RAW, NET_ADMIN]
+        {{- end }}
+      {{- if .Values.hepCapture.enabled }}
+      volumes:
+        - name: hep-config
+          configMap:
+            name: {{ include "kazoo.fullname" . }}-kamailio-hep
+      {{- end }}
 {{- end }}

@@ -123,6 +123,24 @@ spec:
               mountPath: /var/lib/kazoo-freeswitch
             - name: freeswitch-log
               mountPath: /var/log/freeswitch
+            {{- if .Values.hepCapture.enabled }}
+            - name: hep-config
+              mountPath: /etc/heplify
+            {{- end }}
+        {{- if .Values.hepCapture.enabled }}
+        - name: heplify
+          image: {{ .Values.hepCapture.image }}
+          imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          env:
+            - name: HEPLIFY_CONFIG
+              value: /etc/heplify/heplify.json
+          volumeMounts:
+            - name: hep-config
+              mountPath: /etc/heplify
+          securityContext:
+            capabilities:
+              add: [NET_RAW, NET_ADMIN]
+        {{- end }}
       volumes:
         - name: freeswitch-data
           persistentVolumeClaim:
@@ -130,4 +148,9 @@ spec:
         - name: freeswitch-log
           persistentVolumeClaim:
             claimName: {{ include "kazoo.fullname" . }}-freeswitch-log
+        {{- if .Values.hepCapture.enabled }}
+        - name: hep-config
+          configMap:
+            name: {{ include "kazoo.fullname" . }}-freeswitch-hep
+        {{- end }}
 {{- end }}

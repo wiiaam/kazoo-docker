@@ -1,0 +1,193 @@
+{{- if .Values.hepCapture.enabled }}
+{{- $server := .Values.hepCapture.server | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kazoo.fullname" . }}-kamailio-hep
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+data:
+  heplify.json: |
+    {
+      "socket": [
+        {
+          "name": "default",
+          "active": true,
+          "socket_type": "afpacket",
+          "transport_profile": ["hepsocket"],
+          "device": "any",
+          "promisc": true,
+          "tcp_reasm": true,
+          "sip_reasm": true,
+          "ipfragments": true,
+          "vlan": false,
+          "snap_len": 8192,
+          "capture_mode": ["SIP"],
+          "fanout_id": 1000,
+          "fanout_workers": 4
+        }
+      ],
+      "transport": [
+        {
+          "name": "hepsocket",
+          "active": true,
+          "failover_only": false,
+          "protocol": "HEPv3",
+          "host": {{ $server }},
+          "transport": "udp",
+          "port": 9060,
+          "password": "",
+          "payload_zip": false,
+          "skip_verify": true,
+          "keepalive": 5,
+          "max_retries": 0
+        }
+      ],
+      "log_settings": {
+        "active": true,
+        "level": "info",
+        "stdout": true,
+        "json": false,
+        "log_payload": false
+      },
+      "protocol": [
+        {
+          "name": "SIP",
+          "filter": "((tcp or sctp) and greater 42 and portrange $minport-$maxport) or (udp and greater 128 and portrange $minport-$maxport) or ip[6:2] & 0x1fff != 0 or ip6[6]=44",
+          "min_port": 5060,
+          "max_port": 7000,
+          "protocol": ["udp", "tcp"],
+          "description": "SIP"
+        }
+      ],
+      "sip_settings": {
+        "discard_methods": [],
+        "discard_ips": [],
+        "discard_src_ips": [],
+        "discard_dst_ips": [],
+        "deduplicate": false
+      },
+      "hep_settings": {
+        "replace_token": false,
+        "deduplicate": false,
+        "collect_only_sip": true
+      },
+      "rtcp_settings": {
+        "active": true
+      },
+      "system_settings": {
+        "node_name": "kazoo-kamailio",
+        "node_id": 2002,
+        "node_pw": "",
+        "uuid": ""
+      },
+      "debug_settings": {
+        "disable_tcp_reassembly": false,
+        "disable_ip_defrag": false
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kazoo.fullname" . }}-freeswitch-hep
+  labels:
+    {{- include "kazoo.labels" . | nindent 4 }}
+data:
+  heplify.json: |
+    {
+      "socket": [
+        {
+          "name": "default",
+          "active": true,
+          "socket_type": "afpacket",
+          "transport_profile": ["hepsocket"],
+          "device": "any",
+          "promisc": true,
+          "tcp_reasm": true,
+          "sip_reasm": true,
+          "ipfragments": true,
+          "vlan": false,
+          "snap_len": 8192,
+          "capture_mode": ["SIP", "RTCP", "RTP"],
+          "fanout_id": 1001,
+          "fanout_workers": 4
+        }
+      ],
+      "transport": [
+        {
+          "name": "hepsocket",
+          "active": true,
+          "failover_only": false,
+          "protocol": "HEPv3",
+          "host": {{ $server }},
+          "transport": "udp",
+          "port": 9060,
+          "password": "",
+          "payload_zip": false,
+          "skip_verify": true,
+          "keepalive": 5,
+          "max_retries": 0
+        }
+      ],
+      "log_settings": {
+        "active": true,
+        "level": "info",
+        "stdout": true,
+        "json": false,
+        "log_payload": false
+      },
+      "protocol": [
+        {
+          "name": "SIP",
+          "filter": "((tcp or sctp) and greater 42 and portrange $minport-$maxport) or (udp and greater 128 and portrange $minport-$maxport) or ip[6:2] & 0x1fff != 0 or ip6[6]=44",
+          "min_port": 11000,
+          "max_port": 11000,
+          "protocol": ["udp", "tcp"],
+          "description": "SIP"
+        },
+        {
+          "name": "RTCP",
+          "filter": "(ip and portrange $minport-$maxport and ip[6] & 0x2 = 0 and ip[6:2] & 0x1fff = 0 and udp and udp[8] & 0xc0 = 0x80 and udp[9] >= 0xc8 && udp[9] <= 0xcc)",
+          "min_port": 16384,
+          "max_port": 16512,
+          "protocol": ["udp"],
+          "description": "RTCP"
+        },
+        {
+          "name": "RTP",
+          "filter": "(ip and portrange $minport-$maxport and ip[6] & 0x2 = 0 and ip[6:2] & 0x1fff = 0 and udp and udp[8] & 0xc0 = 0x80)",
+          "min_port": 16384,
+          "max_port": 16512,
+          "protocol": ["udp"],
+          "description": "RTP"
+        }
+      ],
+      "sip_settings": {
+        "discard_methods": [],
+        "discard_ips": [],
+        "discard_src_ips": [],
+        "discard_dst_ips": [],
+        "deduplicate": false
+      },
+      "hep_settings": {
+        "replace_token": false,
+        "deduplicate": false,
+        "collect_only_sip": false
+      },
+      "rtcp_settings": {
+        "active": true
+      },
+      "system_settings": {
+        "node_name": "kazoo-freeswitch",
+        "node_id": 2003,
+        "node_pw": "",
+        "uuid": ""
+      },
+      "debug_settings": {
+        "disable_tcp_reassembly": false,
+        "disable_ip_defrag": false
+      }
+    }
+{{- end }}

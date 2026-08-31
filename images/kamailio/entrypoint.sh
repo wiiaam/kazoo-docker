@@ -116,10 +116,9 @@ ensure_schema() {
 seed_dispatcher() {
     PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" \
         -v ON_ERROR_STOP=1 -c \
-        "DELETE FROM dispatcher WHERE setid=1 AND destination <> 'sip:$FREESWITCH_SIP_ADDRESS';
+        "DELETE FROM dispatcher WHERE setid=1;
          INSERT INTO dispatcher (setid,destination,flags,priority,attrs,description)
-         VALUES (1,'sip:$FREESWITCH_SIP_ADDRESS',0,0,'','freeswitch')
-         ON CONFLICT DO NOTHING;"
+         VALUES (1,'sip:$FREESWITCH_SIP_ADDRESS',0,0,'','freeswitch');"
     log "dispatcher setid=1 -> sip:$FREESWITCH_SIP_ADDRESS"
 }
 

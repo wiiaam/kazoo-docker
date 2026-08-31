@@ -67,6 +67,18 @@ networkPolicies:
 subdomain: kazoo
 
 # ---------------------------------------------------------------------------
+# HEP capture via heplify sidecars. When enabled, a heplify agent is added to
+# the kamailio + freeswitch pods (same netns) and forwards SIP (and, on
+# FreeSWITCH, RTCP/RTP metadata) to a HEP collector -- e.g. the HOMER stack
+# (homer/kustomization.yaml, deployed into the kazoo namespace). `server` is the
+# collector's in-cluster DNS name (heplify-server Service in the same ns).
+# ---------------------------------------------------------------------------
+hepCapture:
+  enabled: false
+  image: sipcapture/heplify:2.0.27
+  server: heplify-server
+
+# ---------------------------------------------------------------------------
 # Shared Monster-UI app-metadata volume (ReadWriteMany). kazoo-apps registers
 # the apps with Crossbar once monster-ui copies them here.
 # ---------------------------------------------------------------------------

@@ -140,6 +140,41 @@ Shared values that everything hangs on (real values live in `.env`):
   waits for PG → creates the `kamailio` role/db if missing → loads the initdb
   schema if empty → seeds `dispatcher` setid 1 → patches `local.cfg` +
   `advertise` → execs kamailio.
+- **k8s dispatcher target = FS reachable address, NOT the in-cluster name**:
+  the chart feeds kamailio `FREESWITCH_SIP_ADDRESS` = `freeswitch.publicIP:11000`
+  when set (else the freeswitch Service name). The Service name resolves to the
+  freeswitch **ClusterIP**, and FS mirrors that ClusterIP into the SDP of the
+  caller-facing leg (`a=oldmediaip` markers) → phones send RTP into a black
+  hole → "call connects, no audio". The publicIP (LB VIP) path yields the
+  correct `c=192.168.10.251` SDP. (See "Solved issues" #9.)
+
+## HOMER / SIP capture (`homer/`, deployed into ns `kazoo`)
+
+- Stands up **heplify sidecars** (per kazoo-kamailio + kazoo-freeswitch pod) →
+  **heplify-server** (HEPv3 9060/UDP, TCP 9061, Postgres back-end) →
+  **homer-app** (UI, LoadBalancer 9080→80, default creds `admin/sipcapture`
+  and `support/sipcapture`). Chart sidebar: `hepCapture.enabled` + the
+  `kazoo-kamailio-hep`/`kazoo-freeswitch-hep` ConfigMaps
+  (`charts/kazoo/templates/hep-capture.yaml`); kamailio captures SIP 5060–7000,
+  freeswitch SIP 11000 + RTP/RTCP 16384–16512, both `HEPv3` UDP → heplify-server.
+- heplify sidecar needs NET_ADMIN/NET_RAW → the kazoo ns runs PSA
+  **privileged** (relabelled). Config knobs: `hepCapture.{enabled,image,server}`.
+- **heplify-server gotchas**: HEPTLSADDR shares its port with HEPTCPADDR — leave
+  `HEPLIFYSERVER_HEPTLSADDR=""` or the TLS listener wins the bind then dies on
+  the missing cert, killing the TCP port. Readiness must target **TCP 9061**
+  (9060 is UDP-only): a failing probe keeps the pod out of EndpointSlices and
+  heplify's UDP HEP gets dropped+ICMP-refused even though the Service looks
+  fine — the EndpointSlice/`cilium service list` backend must match the live
+  pod IP. Keep `Service` UDP 9060 + TCP 9061 ports explicit (a re-apply once
+  silently dropped the UDP port).
+- Query captured traffic (messages are in `homer_data`; `raw` has full SIP+SDP,
+  `protocol_header`/`data_header` are jsonb):
+  ```
+  kubectl -n kazoo exec deploy/homer-db -- psql -U root -d homer_data -P pager=off \
+    -c "select id, create_date, sid, protocol_header->>'srcIp' src, data_header->>'method' m, data_header->>'from_user' frm from hep_proto_1_call order by id"
+  ```
+  Rx the terminating-leg SDP via `select substring(raw from 'v=0.*') ...`
+  (200 OK must carry `c=192.168.10.251`, not a ClusterIP/pod IP).
 
 ## GHCR builds (GitHub Actions)
 
@@ -291,8 +326,11 @@ Shared values that everything hangs on (real values live in `.env`):
    address (set it in `.env`); `127.0.0.1` only works from the host itself.
 3. **Dispatcher dedup** — stale `dispatcher` rows (old container IPs) caused
    480/482 "merged" responses; entrypoint now prunes + keeps one canonical
-   `sip:freeswitch:11000` (and prunes other `sip:<bridge-ip>:11000` rows).
-   Runtime reload: `kamcmd dispatcher.reload`.
+   destination (and prunes other `sip:<bridge-ip>:11000` rows). NB in k8s the
+   entrypoint's old `INSERT ... ON CONFLICT DO NOTHING` had no unique backing
+   index, so restarts re-appended identical rows — the image is now hardened to
+   `DELETE FROM dispatcher WHERE setid=1` + single INSERT (image rebuild
+   pending a GHCR push). Runtime reload: `kamcmd dispatcher.reload`.
 4. **`legacy-events=true` mandatory** in kazoo.conf.xml — without it ecallmgr
    only sees modern 2-tuple fetch events and never answers directory/dialplan
    requests ("unhandled message" catch-all).
@@ -308,6 +346,21 @@ Shared values that everything hangs on (real values live in `.env`):
    `BIND_IP=0.0.0.0` (all IPv4) instead of `hostname -i`'s first address:
    dual-stack k8s pods list the intended-but-not-assignable IPv6 first on a
    v4-only underlay → "bind ... Cannot assign requested address" crashloop.
+   Optional override: `[::]` = all v6, `dual` = both stacks (appends
+   `listen=...:[::]:<port>` lines), or a single address. No chart plumbing
+   needed; empty/unset = all interfaces. Requires an image rebuild to take
+   effect.
+9. **"Call connects, no audio" in k8s = ClusterIP leaked into SDP** — kamailio
+   seeded the dispatcher with `sip:freeswitch:11000`, which CoreDNS resolved to
+   the freeswitch **Service ClusterIP** (10.102.30.x). FS recorded that host as
+   the leg's local contact and mirrored it into the 200 OK SDP sent back to the
+   caller (`c=IN IP4 10.102.30.120`, plus `a=oldmediaip:192.168.10.251` marks),
+   so phones point RTP at an unroutable ClusterIP → silent call. The cleanup:
+   the chart now feeds `FREESWITCH_SIP_ADDRESS` = `freeswitch.publicIP:11000`
+   (the LB VIP, which also honours the phone-advertise caveat) rather than the
+   service name, when publicIP is set. Diagnosed from a HOMER trace where the
+   same call forked to the ClusterIP (broken SDP c=10.102.30.120) AND the VIP
+   (good SDP c=192.168.10.251) on duplicate dispatcher rows.
    Optional override: `[::]` = all v6, `dual` = both stacks (appends
    `listen=...:[::]:<port>` lines), or a single address. No chart plumbing
    needed; empty/unset = all interfaces. Requires an image rebuild to take

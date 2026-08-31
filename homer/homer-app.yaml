@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homer-app
+  labels:
+    app: homer-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: homer-app
+  template:
+    metadata:
+      labels:
+        app: homer-app
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: k8s-worker1
+      initContainers:
+        - name: wait-for-db
+          image: postgres:11-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until pg_isready -h homer-db -U root; do sleep 2; done"]
+      containers:
+        - name: homer-app
+          image: ghcr.io/sipcapture/homer-app
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOST
+              value: homer-db
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: root
+            - name: DB_PASS
+              value: homerSeven
+            - name: DB_KEEPALIVE
+              value: "false"
+            - name: HOMER_LOGLEVEL
+              value: info
+            - name: HOMER_ENABLE_API
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: homer-app
+  labels:
+    app: homer-app
+spec:
+  selector:
+    app: homer-app
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 9080
+      targetPort: http
+      protocol: TCP
