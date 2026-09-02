@@ -49,8 +49,8 @@
 
 
             <!-- SIP -->
-            <param name="sip-ip" value="KAZOO_ADDRESS"/>
-            <param name="ext-sip-ip" value="KAZOO_LOCAL_ADDRESS"/>
+            <param name="sip-ip" value="$${local_ip_v4}"/>
+            <param name="ext-sip-ip" value="EXT_SIP_IP"/>
             <param name="sip-port" value="SIP_PORT"/>
             <!--<param name="outbound-proxy" value="127.0.0.1"/>-->
             <!--<param name="sip-domain" value="sip.2600hz.com"/>-->

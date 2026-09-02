@@ -323,22 +323,18 @@ freeswitch:
   ## SIP + Erlang dist ports (also the in-cluster service ports below).
   sipPort: 11000
   erlangDistPort: 8031
-  ## IP advertised to phones for SIP signaling (-> KAZOO_LOCAL_ADDRESS ->
-  ## ext-sip-ip). Named to match the upstream Kazoo env var -- despite the
-  ## "local" in that name, this is the EXTERNALLY-routable address, not a
-  ## bind address (that's kazooAddress below). For LoadBalancer exposure set
-  ## this to the LB DNS name (e.g. sip.example.com) so phones get the right
-  ## Contact/SDP address. Empty -> falls back to the pod IP (in-cluster only).
-  kazooLocalAddress: ""
+  ## IP advertised to phones/trunk providers for SIP signaling (-> EXT_SIP_IP
+  ## -> ext-sip-ip). FreeSWITCH binds sip-ip itself via its own
+  ## $${local_ip_v4} auto-detection -- this is only the externally-advertised
+  ## address. For LoadBalancer exposure set this to the LB DNS name (e.g.
+  ## sip.example.com) so phones/trunks get the right Contact/SDP address.
+  ## Empty -> falls back to the pod IP (in-cluster only).
+  extSipIP: ""
   ## RTP advertise address (-> EXT_RTP_IP -> ext-rtp-ip). Falls back to
-  ## kazooLocalAddress automatically (see images/kazoo-freeswitch/
-  ## entrypoint.sh) since SIP and RTP normally share the same external path --
-  ## only set this separately if yours don't.
+  ## extSipIP automatically (see images/kazoo-freeswitch/entrypoint.sh) since
+  ## SIP and RTP normally share the same external path -- only set this
+  ## separately if yours don't.
   extRtpIP: ""
-  ## The actual local SIP bind address (-> KAZOO_ADDRESS -> sip-ip). Almost
-  ## always left empty: defaults to the pod's own IP via the downward API.
-  ## Only set this to force a specific/fixed bind address.
-  kazooAddress: ""
   ## Erlang dist long name + what ecallmgr is seeded to ping. Default keeps
   ## the classic compose identity; "<node>.kazoo" resolves via subdomain DNS.
   nodeName: freeswitch@freeswitch.kazoo
