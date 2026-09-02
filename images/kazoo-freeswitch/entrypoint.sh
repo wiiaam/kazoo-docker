@@ -17,8 +17,10 @@ KAZOO_ADDRESS="${KAZOO_ADDRESS:-$(hostname -I | awk '{print $1}')}"
 KAZOO_LOCAL_ADDRESS="${KAZOO_LOCAL_ADDRESS:-$KAZOO_ADDRESS}"
 # Address advertised in SDP for RTP. Must be reachable by the remote phone:
 # the machine hosting Docker Desktop, with the RTP port range published to it.
-# Falls back to the container IP (only useful inside the compose network).
-EXT_RTP_IP="${EXT_RTP_IP:-$KAZOO_ADDRESS}"
+# Falls back to KAZOO_LOCAL_ADDRESS (the advertised SIP address) rather than
+# the raw container IP, since SIP and RTP normally share the same external
+# path -- setting only KAZOO_LOCAL_ADDRESS is enough for the common case.
+EXT_RTP_IP="${EXT_RTP_IP:-$KAZOO_LOCAL_ADDRESS}"
 # Must be freeswitch@<dotted fqdn>: Erlang long-name dist (shortname=false)
 # requires a dot in the host portion, and kazoo's kz_dist.erl special-cases a
 # node literally named "freeswitch". Compose sets `hostname:` to a dotted
