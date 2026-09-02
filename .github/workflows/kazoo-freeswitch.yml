@@ -6,6 +6,7 @@ name: build-kazoo-freeswitch
 
 on:
   push:
+    branches: [main]
     paths:
       - 'images/kazoo-freeswitch/**'
   pull_request:
