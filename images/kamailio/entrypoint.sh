@@ -23,11 +23,23 @@ set -e
 # Vendor default (25/25) forks enough UDP+TCP workers that, with presence and
 # sqlops each opening their own Postgres connection per child, kamailio alone
 # can exceed postgres.maxConnections before it finishes starting up ("sorry,
-# too many clients already" -> child_init failures -> aborted startup). 4/4
-# is plenty for a single-node deployment; raise alongside maxConnections if
-# you scale traffic up.
-: "${KAMAILIO_CHILDREN:=4}"
-: "${KAMAILIO_TCP_CHILDREN:=4}"
+# too many clients already" -> child_init failures -> aborted startup).
+# Too few workers is its own problem though: the AMQP authn_req/authn_resp
+# round-trip for REGISTER challenges runs on these same worker processes, and
+# a burst of phones re-registering at once (e.g. every device reconnecting
+# right after a kamailio restart) can starve the callback long enough to blow
+# REGISTRAR_QUERY_TIMEOUT_MS and get a spurious 408 back to the phone, even
+# though kazoo-apps answered in time. 16/16 leaves real headroom for a
+# restart-triggered mass re-registration while still using well under half of
+# postgres.maxConnections (16+16 workers x 2 db-backed modules = 64
+# connections); raise both together if you scale traffic up further.
+: "${KAMAILIO_CHILDREN:=16}"
+: "${KAMAILIO_TCP_CHILDREN:=16}"
+# See above -- the AMQP auth round-trip has this long to complete before
+# kamailio gives up and 408s the REGISTER itself, independent of worker
+# starvation. Widening it trades a slightly slower worst-case registration
+# for a lot more tolerance during a mass-reconnect burst.
+: "${KAMAILIO_REGISTRAR_QUERY_TIMEOUT_MS:=4000}"
 
 CONF="/etc/kazoo/kamailio/kamailio.cfg"
 LOCAL_CFG="/etc/kazoo/kamailio/local.cfg"
@@ -224,6 +236,10 @@ DEFS_CFG="$(dirname "$CONF")/defs.cfg"
 sed -i -E "s/^#!trydef CHILDREN [0-9]+/#!trydef CHILDREN ${KAMAILIO_CHILDREN}/" "$DEFS_CFG"
 sed -i -E "s/^#!trydef TCP_CHILDREN [0-9]+/#!trydef TCP_CHILDREN ${KAMAILIO_TCP_CHILDREN}/" "$DEFS_CFG"
 log "children=${KAMAILIO_CHILDREN} tcp_children=${KAMAILIO_TCP_CHILDREN}"
+
+REGISTRAR_ROLE_CFG="$(dirname "$CONF")/registrar-role.cfg"
+sed -i -E "s/^#!trydef REGISTRAR_QUERY_TIMEOUT_MS [0-9]+/#!trydef REGISTRAR_QUERY_TIMEOUT_MS ${KAMAILIO_REGISTRAR_QUERY_TIMEOUT_MS}/" "$REGISTRAR_ROLE_CFG"
+log "registrar_query_timeout_ms=${KAMAILIO_REGISTRAR_QUERY_TIMEOUT_MS}"
 
 # Registration events carry a "Proxy-Path" (in registrar-role.cfg) that
 # ecallmgr uses as the route back to kamailio when FreeSWITCH dials a
