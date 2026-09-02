@@ -251,6 +251,25 @@ kamailio:
   ## Shared memory / pkg memory for the kamailio process
   shmMemory: 256
   pkgMemory: 16
+  ## UDP/TCP worker process count. The vendor config's 25/25 default forks
+  ## enough workers that presence + sqlops alone (one Postgres connection
+  ## each, per worker) can exceed postgres.maxConnections before kamailio
+  ## finishes starting up. Too few workers has its own failure mode though:
+  ## the AMQP authn_req/authn_resp round-trip behind each REGISTER challenge
+  ## runs on these same workers, and a burst of phones re-registering at once
+  ## (e.g. every device reconnecting right after a kamailio restart) can
+  ## starve it past registrarQueryTimeoutMs, producing spurious 408s even
+  ## though kazoo-apps answered in time. 16/16 leaves headroom for a
+  ## restart-triggered mass re-registration while still using well under half
+  ## of postgres.maxConnections (16+16 workers x 2 db-backed modules = 64
+  ## connections) -- raise both together if you scale traffic up further.
+  children: 16
+  tcpChildren: 16
+  ## How long kamailio waits for kazoo-apps' AMQP authn_resp before giving up
+  ## and 408ing the REGISTER itself, independent of worker starvation above.
+  ## Vendor default is 2500ms; widened here to trade a slightly slower
+  ## worst-case registration for more tolerance during a mass-reconnect burst.
+  registrarQueryTimeoutMs: 4000
   ## SIP Service. `ports` is a plain list of Kubernetes ServicePort objects --
   ## also what the pod's own containerPort list is rendered from, so the two
   ## can never drift. Names/ports are fixed by the kamailio config tree

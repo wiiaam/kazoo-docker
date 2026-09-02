@@ -45,28 +45,55 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "20";\n' \
     > /etc/apt/apt.conf.d/99retries
 
+# ca-certificates has to land BEFORE the kamailio.org HTTPS repo is added
+# below. This is a fresh stage with no CA trust store yet (multi-stage builds
+# don't carry over installed packages from the build stage, only COPY'd
+# files) -- apt-get update against an https source with no ca-certificates
+# installed fails TLS verification, and apt doesn't treat that as fatal: it
+# just drops that repo's package index and silently falls back to whatever
+# *other* configured repo provides the same package name. Debian bullseye's
+# own main repo happens to ship a same-named "kamailio" package (5.4.4-1), so
+# for months every build here silently installed that instead of the
+# higher-versioned deb.kamailio.org one (5.5.7+bpo11) the vendor config
+# (kageds/kazoo-configs-kamailio, see POSTGRES.md) was actually written and
+# tested against -- no error, because the unpinned install still "succeeded".
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /usr/share/keyrings/kamailio.gpg /usr/share/keyrings/kamailio.gpg
 COPY --from=build /etc/apt/sources.list.d/kamailio.list /etc/apt/sources.list.d/kamailio.list
 COPY --from=build /etc/kazoo /etc/kazoo
 
-# Runtime-only packages: ca-certificates (kamailio-tls-modules), postgresql-client
-# (psql, used by entrypoint.sh), and the kamailio module set itself -- installed
-# against the repo/keyring copied in above, so no curl/gnupg/git needed here.
+# Runtime-only packages: postgresql-client (psql, used by entrypoint.sh) and
+# the kamailio module set itself -- installed against the repo/keyring copied
+# in above, now that ca-certificates can actually validate it.
+#
+# The kamailio packages stay version-pinned so apt can never again silently
+# substitute Debian's own build for deb.kamailio.org's -- bump
+# KAMAILIO_VERSION deliberately, not by accident.
+ARG KAMAILIO_VERSION=5.5.7+bpo11
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-    ca-certificates \
     postgresql-client \
-    kamailio \
-    kamailio-postgres-modules \
-    kamailio-kazoo-modules \
-    kamailio-outbound-modules \
-    kamailio-presence-modules \
-    kamailio-tls-modules \
-    kamailio-utils-modules \
-    kamailio-websocket-modules \
-    kamailio-extra-modules \
-    kamailio-xmpp-modules \
+    kamailio=${KAMAILIO_VERSION} \
+    kamailio-postgres-modules=${KAMAILIO_VERSION} \
+    kamailio-kazoo-modules=${KAMAILIO_VERSION} \
+    kamailio-outbound-modules=${KAMAILIO_VERSION} \
+    kamailio-presence-modules=${KAMAILIO_VERSION} \
+    kamailio-tls-modules=${KAMAILIO_VERSION} \
+    kamailio-utils-modules=${KAMAILIO_VERSION} \
+    kamailio-websocket-modules=${KAMAILIO_VERSION} \
+    kamailio-extra-modules=${KAMAILIO_VERSION} \
+    kamailio-xmpp-modules=${KAMAILIO_VERSION} \
     && rm -rf /var/lib/apt/lists/*
+
+# nat_traversal writes its keepalive state here; the vendor config assumes a
+# real package install already created it, which a from-source build never
+# does. kamailio drops privileges to the kamailio user/group at runtime
+# (entrypoint.sh's -u/-g flags), so it needs write access too.
+RUN mkdir -p /etc/kazoo/kamailio/db \
+    && chown kamailio:kamailio /etc/kazoo/kamailio/db
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

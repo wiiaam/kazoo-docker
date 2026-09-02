@@ -69,6 +69,12 @@ spec:
               value: {{ .Values.kamailio.shmMemory | quote }}
             - name: KAMAILIO_PKG_MEMORY
               value: {{ .Values.kamailio.pkgMemory | quote }}
+            - name: KAMAILIO_CHILDREN
+              value: {{ .Values.kamailio.children | quote }}
+            - name: KAMAILIO_TCP_CHILDREN
+              value: {{ .Values.kamailio.tcpChildren | quote }}
+            - name: KAMAILIO_REGISTRAR_QUERY_TIMEOUT_MS
+              value: {{ .Values.kamailio.registrarQueryTimeoutMs | quote }}
           {{- include "kazoo.containerPorts" .Values.kamailio.service.ports | nindent 10 }}
           {{- if .Values.hepCapture.enabled }}
           volumeMounts:
