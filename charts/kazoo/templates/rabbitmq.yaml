@@ -34,13 +34,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "kazoo.secret.name" . }}
                   key: rabbitPass
-          ports:
-            - name: amqp
-              containerPort: 5672
-              protocol: TCP
-            - name: management
-              containerPort: {{ .Values.rabbitmq.service.mgmtPort }}
-              protocol: TCP
+          {{- include "kazoo.containerPorts" .Values.rabbitmq.service.ports | nindent 10 }}
           readinessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]

@@ -88,10 +88,7 @@ spec:
             # ecallmgr "fs_nodes" seed -- must equal the FS pod node name
             - name: FS_NODE_NAME
               value: {{ .Values.freeswitch.nodeName | quote }}
-          ports:
-            - name: crossbar
-              containerPort: 8000
-              protocol: TCP
+          {{- include "kazoo.containerPorts" .Values.kazooCore.service.ports | nindent 10 }}
           readinessProbe:
             exec:
               command: ["/opt/kazoo/bin/sup", "-n", "kazoo_apps", "kz_nodes", "status"]

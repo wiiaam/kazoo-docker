@@ -16,7 +16,7 @@ spec:
     - {{ .Values.kazooCore.httpRoute.hostname }}
   {{- end }}
   rules:
-{{ include "kazoo.httpRouteRules" (dict "ctx" . "comp" "kazooCore" "svcName" (include "kazoo.service" (dict "ctx" . "name" "kazooCore")) "port" .Values.kazooCore.service.port) | indent 4 }}
+{{ include "kazoo.httpRouteRules" (dict "ctx" . "comp" "kazooCore" "svcName" (include "kazoo.service" (dict "ctx" . "name" "kazooCore")) "port" (first .Values.kazooCore.service.ports).port) | indent 4 }}
 {{- end }}
 {{- if and .Values.monsterUi.enabled .Values.monsterUi.httpRoute.enabled }}
 ---
@@ -37,5 +37,5 @@ spec:
     - {{ .Values.monsterUi.httpRoute.hostname }}
   {{- end }}
   rules:
-{{ include "kazoo.httpRouteRules" (dict "ctx" . "comp" "monsterUi" "svcName" (include "kazoo.service" (dict "ctx" . "name" "monsterUi")) "port" .Values.monsterUi.service.port) | indent 4 }}
+{{ include "kazoo.httpRouteRules" (dict "ctx" . "comp" "monsterUi" "svcName" (include "kazoo.service" (dict "ctx" . "name" "monsterUi")) "port" (first .Values.monsterUi.service.ports).port) | indent 4 }}
 {{- end }}

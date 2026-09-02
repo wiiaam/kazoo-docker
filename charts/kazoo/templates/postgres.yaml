@@ -39,10 +39,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "kazoo.secret.name" . }}
                   key: postgresPass
-          ports:
-            - name: postgres
-              containerPort: 5432
-              protocol: TCP
+          {{- include "kazoo.containerPorts" .Values.postgres.service.ports | nindent 10 }}
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", {{ .Values.secrets.postgresUser | quote }}, "-d", "kazoo"]

@@ -122,6 +122,7 @@ couchdb:
     ports:
       - name: http
         port: 5984
+        targetPort: 5984
     ## Extra labels/annotations + Service spec passthrough (maps 1:1 onto the
     ## Service resource). Repeated on every component -- see kamailio for docs.
     labels: {}
@@ -147,8 +148,10 @@ rabbitmq:
     ports:
       - name: amqp
         port: 5672
+        targetPort: 5672
       - name: management
         port: 15672
+        targetPort: 15672
     labels: {}
     annotations: {}
     externalTrafficPolicy: ""
@@ -173,6 +176,7 @@ postgres:
     ports:
       - name: postgres
         port: 5432
+        targetPort: 5432
     labels: {}
     annotations: {}
     externalTrafficPolicy: ""
@@ -270,23 +274,29 @@ kamailio:
     ports:
       - name: sip-udp
         port: 5060
+        targetPort: 5060
         protocol: UDP
         nodePort: ""
       - name: sip-tcp
         port: 5060
+        targetPort: 5060
         protocol: TCP
         nodePort: ""
       - name: sip-tls-udp
         port: 5061
+        targetPort: 5061
         protocol: UDP
       - name: sip-tls-tcp
         port: 5061
+        targetPort: 5061
         protocol: TCP
       - name: ws-udp
         port: 7000
+        targetPort: 7000
         protocol: UDP
       - name: ws-tcp
         port: 7000
+        targetPort: 7000
         protocol: TCP
     ## Extra labels/annotations + Service spec passthrough (LB pool selection,
     ## loadBalancerIP/IP pinning, externalTrafficPolicy, ...) -- maps 1:1 onto

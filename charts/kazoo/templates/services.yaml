@@ -1,118 +1,25 @@
-# Per-component Services. Each is configured in its owning component's
-# `service:` section on purpose -- the values map 1:1 onto a Service spec the
-# way most charts do: type, annotations/labels (LB pool selection, ip pinning,
-# cert annotations, ...), and spec extras (externalTrafficPolicy,
-# loadBalancerIP, loadBalancerSourceRanges) all pass straight through. Names
-# come from <component>.service.name (the in-cluster DNS names pods resolve).
+# Per-component Services. couchdb/rabbitmq/postgres/kazooCore/kamailio/
+# monsterUi all share one shape -- a plain `service.ports` list -- so
+# they're all rendered by the "kazoo.simpleService" helper in _helpers.tpl:
+# type, annotations/labels (LB pool selection, ip pinning, cert annotations,
+# ...), and spec extras (externalTrafficPolicy, loadBalancerIP,
+# loadBalancerSourceRanges) all pass straight through from
+# <component>.service.* the way most charts do. FreeSWITCH is the exception
+# (its RTP range is generated, not listed) and keeps its own explicit block
+# at the end.
 
 {{- if and .Values.couchdb.enabled .Values.couchdb.service.enabled }}
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "kazoo.service" (dict "ctx" . "name" "couchdb") }}
-  labels:
-    {{- include "kazoo.labels" . | nindent 4 }}
-    {{- if .Values.couchdb.service.labels }}
-    {{- toYaml .Values.couchdb.service.labels | nindent 4 }}
-    {{- end }}
-  {{- if .Values.couchdb.service.annotations }}
-  annotations:
-    {{- toYaml .Values.couchdb.service.annotations | nindent 4 }}
-  {{- end }}
-spec:
-  type: {{ .Values.couchdb.service.type }}
-  {{- if .Values.couchdb.service.externalTrafficPolicy }}
-  externalTrafficPolicy: {{ .Values.couchdb.service.externalTrafficPolicy }}
-  {{- end }}
-  {{- if .Values.couchdb.service.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.couchdb.service.loadBalancerIP }}
-  {{- end }}
-  {{- if .Values.couchdb.service.loadBalancerSourceRanges }}
-  loadBalancerSourceRanges:
-    {{- toYaml .Values.couchdb.service.loadBalancerSourceRanges | nindent 4 }}
-  {{- end }}
-  selector:
-    {{- include "kazoo.selectorLabels" . | nindent 4 }}
-    component: couchdb
-  ports:
-    - name: http
-      port: {{ .Values.couchdb.service.port }}
-      protocol: TCP
+{{ include "kazoo.simpleService" (dict "ctx" . "name" "couchdb" "component" "couchdb") }}
 {{- end }}
 
 {{- if and .Values.rabbitmq.enabled .Values.rabbitmq.service.enabled }}
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "kazoo.service" (dict "ctx" . "name" "rabbitmq") }}
-  labels:
-    {{- include "kazoo.labels" . | nindent 4 }}
-    {{- if .Values.rabbitmq.service.labels }}
-    {{- toYaml .Values.rabbitmq.service.labels | nindent 4 }}
-    {{- end }}
-  {{- if .Values.rabbitmq.service.annotations }}
-  annotations:
-    {{- toYaml .Values.rabbitmq.service.annotations | nindent 4 }}
-  {{- end }}
-spec:
-  type: {{ .Values.rabbitmq.service.type }}
-  {{- if .Values.rabbitmq.service.externalTrafficPolicy }}
-  externalTrafficPolicy: {{ .Values.rabbitmq.service.externalTrafficPolicy }}
-  {{- end }}
-  {{- if .Values.rabbitmq.service.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.rabbitmq.service.loadBalancerIP }}
-  {{- end }}
-  {{- if .Values.rabbitmq.service.loadBalancerSourceRanges }}
-  loadBalancerSourceRanges:
-    {{- toYaml .Values.rabbitmq.service.loadBalancerSourceRanges | nindent 4 }}
-  {{- end }}
-  selector:
-    {{- include "kazoo.selectorLabels" . | nindent 4 }}
-    component: rabbitmq
-  ports:
-    - name: amqp
-      port: {{ .Values.rabbitmq.service.port }}
-      protocol: TCP
-    - name: management
-      port: {{ .Values.rabbitmq.service.mgmtPort }}
-      protocol: TCP
+{{ include "kazoo.simpleService" (dict "ctx" . "name" "rabbitmq" "component" "rabbitmq") }}
 {{- end }}
 
 {{- if and .Values.postgres.enabled .Values.postgres.service.enabled }}
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "kazoo.service" (dict "ctx" . "name" "postgres") }}
-  labels:
-    {{- include "kazoo.labels" . | nindent 4 }}
-    {{- if .Values.postgres.service.labels }}
-    {{- toYaml .Values.postgres.service.labels | nindent 4 }}
-    {{- end }}
-  {{- if .Values.postgres.service.annotations }}
-  annotations:
-    {{- toYaml .Values.postgres.service.annotations | nindent 4 }}
-  {{- end }}
-spec:
-  type: {{ .Values.postgres.service.type }}
-  {{- if .Values.postgres.service.externalTrafficPolicy }}
-  externalTrafficPolicy: {{ .Values.postgres.service.externalTrafficPolicy }}
-  {{- end }}
-  {{- if .Values.postgres.service.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.postgres.service.loadBalancerIP }}
-  {{- end }}
-  {{- if .Values.postgres.service.loadBalancerSourceRanges }}
-  loadBalancerSourceRanges:
-    {{- toYaml .Values.postgres.service.loadBalancerSourceRanges | nindent 4 }}
-  {{- end }}
-  selector:
-    {{- include "kazoo.selectorLabels" . | nindent 4 }}
-    component: postgres
-  ports:
-    - name: postgres
-      port: {{ .Values.postgres.service.port }}
-      protocol: TCP
+{{ include "kazoo.simpleService" (dict "ctx" . "name" "postgres" "component" "postgres") }}
 {{- end }}
 
 ---
@@ -120,82 +27,12 @@ spec:
 # kazooCore's outbound service: type "none" means no Service at all (port-
 # forward instead, see NOTES.txt).
 {{- if and .Values.kazooCore.enabled .Values.kazooCore.service.enabled (ne .Values.kazooCore.service.type "none") }}
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "kazoo.service" (dict "ctx" . "name" "kazooCore") }}
-  labels:
-    {{- include "kazoo.labels" . | nindent 4 }}
-    {{- if .Values.kazooCore.service.labels }}
-    {{- toYaml .Values.kazooCore.service.labels | nindent 4 }}
-    {{- end }}
-  {{- if .Values.kazooCore.service.annotations }}
-  annotations:
-    {{- toYaml .Values.kazooCore.service.annotations | nindent 4 }}
-  {{- end }}
-spec:
-  type: {{ .Values.kazooCore.service.type }}
-  {{- if .Values.kazooCore.service.externalTrafficPolicy }}
-  externalTrafficPolicy: {{ .Values.kazooCore.service.externalTrafficPolicy }}
-  {{- end }}
-  {{- if .Values.kazooCore.service.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.kazooCore.service.loadBalancerIP }}
-  {{- end }}
-  {{- if .Values.kazooCore.service.loadBalancerSourceRanges }}
-  loadBalancerSourceRanges:
-    {{- toYaml .Values.kazooCore.service.loadBalancerSourceRanges | nindent 4 }}
-  {{- end }}
-  selector:
-    {{- include "kazoo.selectorLabels" . | nindent 4 }}
-    component: kazoo-apps
-  ports:
-    - name: crossbar
-      port: {{ .Values.kazooCore.service.port }}
-      targetPort: {{ .Values.kazooCore.service.targetPort }}
-      protocol: TCP
-      {{- if and (eq .Values.kazooCore.service.type "NodePort") (.Values.kazooCore.service.nodePort) }}
-      nodePort: {{ .Values.kazooCore.service.nodePort }}
-      {{- end }}
+{{ include "kazoo.simpleService" (dict "ctx" . "name" "kazooCore" "component" "kazoo-apps") }}
 {{- end }}
 
 {{- if and .Values.monsterUi.enabled .Values.monsterUi.service.enabled (ne .Values.monsterUi.service.type "none") }}
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "kazoo.service" (dict "ctx" . "name" "monsterUi") }}
-  labels:
-    {{- include "kazoo.labels" . | nindent 4 }}
-    {{- if .Values.monsterUi.service.labels }}
-    {{- toYaml .Values.monsterUi.service.labels | nindent 4 }}
-    {{- end }}
-  {{- if .Values.monsterUi.service.annotations }}
-  annotations:
-    {{- toYaml .Values.monsterUi.service.annotations | nindent 4 }}
-  {{- end }}
-spec:
-  type: {{ .Values.monsterUi.service.type }}
-  {{- if .Values.monsterUi.service.externalTrafficPolicy }}
-  externalTrafficPolicy: {{ .Values.monsterUi.service.externalTrafficPolicy }}
-  {{- end }}
-  {{- if .Values.monsterUi.service.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.monsterUi.service.loadBalancerIP }}
-  {{- end }}
-  {{- if .Values.monsterUi.service.loadBalancerSourceRanges }}
-  loadBalancerSourceRanges:
-    {{- toYaml .Values.monsterUi.service.loadBalancerSourceRanges | nindent 4 }}
-  {{- end }}
-  selector:
-    {{- include "kazoo.selectorLabels" . | nindent 4 }}
-    component: monster-ui
-  ports:
-    - name: http
-      port: {{ .Values.monsterUi.service.port }}
-      targetPort: {{ .Values.monsterUi.service.targetPort }}
-      protocol: TCP
-      {{- if and (eq .Values.monsterUi.service.type "NodePort") (.Values.monsterUi.service.nodePort) }}
-      nodePort: {{ .Values.monsterUi.service.nodePort }}
-      {{- end }}
+{{ include "kazoo.simpleService" (dict "ctx" . "name" "monsterUi" "component" "monster-ui") }}
 {{- end }}
 
 ---
@@ -203,59 +40,7 @@ spec:
 # default); set NodePort/LoadBalancer to expose SIP to phones. LB pool/ip
 # selection (e.g. Cilium LB-IPAM) goes in kamailio.service.labels/annotations.
 {{- if and .Values.kamailio.enabled .Values.kamailio.service.enabled }}
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "kazoo.service" (dict "ctx" . "name" "kamailio") }}
-  labels:
-    {{- include "kazoo.labels" . | nindent 4 }}
-    {{- if .Values.kamailio.service.labels }}
-    {{- toYaml .Values.kamailio.service.labels | nindent 4 }}
-    {{- end }}
-  {{- if .Values.kamailio.service.annotations }}
-  annotations:
-    {{- toYaml .Values.kamailio.service.annotations | nindent 4 }}
-  {{- end }}
-spec:
-  type: {{ .Values.kamailio.service.type }}
-  {{- if .Values.kamailio.service.externalTrafficPolicy }}
-  externalTrafficPolicy: {{ .Values.kamailio.service.externalTrafficPolicy }}
-  {{- end }}
-  {{- if .Values.kamailio.service.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.kamailio.service.loadBalancerIP }}
-  {{- end }}
-  {{- if .Values.kamailio.service.loadBalancerSourceRanges }}
-  loadBalancerSourceRanges:
-    {{- toYaml .Values.kamailio.service.loadBalancerSourceRanges | nindent 4 }}
-  {{- end }}
-  selector:
-    {{- include "kazoo.selectorLabels" . | nindent 4 }}
-    component: kamailio
-  ports:
-    - name: sip-udp
-      port: {{ .Values.kamailio.service.udp }}
-      protocol: UDP
-      {{- if and (eq .Values.kamailio.service.type "NodePort") (.Values.kamailio.service.nodePort) }}
-      nodePort: {{ .Values.kamailio.service.nodePort }}
-      {{- end }}
-    - name: sip-tcp
-      port: {{ .Values.kamailio.service.tcp }}
-      protocol: TCP
-      {{- if and (eq .Values.kamailio.service.type "NodePort") (.Values.kamailio.service.nodePort) }}
-      nodePort: {{ .Values.kamailio.service.nodePort }}
-      {{- end }}
-    - name: sip-tls-udp
-      port: {{ .Values.kamailio.service.tls }}
-      protocol: UDP
-    - name: sip-tls-tcp
-      port: {{ .Values.kamailio.service.tls }}
-      protocol: TCP
-    - name: ws-udp
-      port: {{ .Values.kamailio.service.ws }}
-      protocol: UDP
-    - name: ws-tcp
-      port: {{ .Values.kamailio.service.ws }}
-      protocol: TCP
+{{ include "kazoo.simpleService" (dict "ctx" . "name" "kamailio" "component" "kamailio") }}
 {{- end }}
 
 ---
@@ -263,7 +48,9 @@ spec:
 # for the kamailio dispatcher ("sip:freeswitch:11000"); ecallmgr reaches the
 # switch via the subdomain "freeswitch.kazoo" (headless) -> pod IP:8031 directly.
 # To expose SIP + RTP to phones, set freeswitch.service.type=LoadBalancer and
-# freeswitch.service.includeRtp=true (appends the RTP slice below).
+# freeswitch.service.includeRtp=true (appends the RTP slice below). Ports here
+# are computed from scalars (sipPort/erlangDistPort/rtp range), not a flat
+# `service.ports` list -- see values.yaml's freeswitch section for why.
 {{- if and .Values.freeswitch.enabled .Values.freeswitch.service.enabled }}
 apiVersion: v1
 kind: Service
