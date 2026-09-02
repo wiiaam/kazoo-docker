@@ -20,6 +20,14 @@ set -e
 : "${FREESWITCH_SIP_ADDRESS:=freeswitch:11000}"
 : "${KAMAILIO_SHM_MEMORY:=256}"
 : "${KAMAILIO_PKG_MEMORY:=16}"
+# Vendor default (25/25) forks enough UDP+TCP workers that, with presence and
+# sqlops each opening their own Postgres connection per child, kamailio alone
+# can exceed postgres.maxConnections before it finishes starting up ("sorry,
+# too many clients already" -> child_init failures -> aborted startup). 4/4
+# is plenty for a single-node deployment; raise alongside maxConnections if
+# you scale traffic up.
+: "${KAMAILIO_CHILDREN:=4}"
+: "${KAMAILIO_TCP_CHILDREN:=4}"
 
 CONF="/etc/kazoo/kamailio/kamailio.cfg"
 LOCAL_CFG="/etc/kazoo/kamailio/local.cfg"
@@ -211,6 +219,11 @@ log "advertising ${ADVERTISE_IP} on kamailio listen sockets"
 DEFAULT_CFG="$(dirname "$CONF")/default.cfg"
 sed -i 's#^tcp_accept_aliases = no$#tcp_accept_aliases = yes#' "$DEFAULT_CFG"
 log "tcp_accept_aliases enabled (reuse flow TCP for in-dialog requests)"
+
+DEFS_CFG="$(dirname "$CONF")/defs.cfg"
+sed -i -E "s/^#!trydef CHILDREN [0-9]+/#!trydef CHILDREN ${KAMAILIO_CHILDREN}/" "$DEFS_CFG"
+sed -i -E "s/^#!trydef TCP_CHILDREN [0-9]+/#!trydef TCP_CHILDREN ${KAMAILIO_TCP_CHILDREN}/" "$DEFS_CFG"
+log "children=${KAMAILIO_CHILDREN} tcp_children=${KAMAILIO_TCP_CHILDREN}"
 
 # Registration events carry a "Proxy-Path" (in registrar-role.cfg) that
 # ecallmgr uses as the route back to kamailio when FreeSWITCH dials a

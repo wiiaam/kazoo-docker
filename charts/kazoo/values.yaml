@@ -251,6 +251,13 @@ kamailio:
   ## Shared memory / pkg memory for the kamailio process
   shmMemory: 256
   pkgMemory: 16
+  ## UDP/TCP worker process count. The vendor config's 25/25 default forks
+  ## enough workers that presence + sqlops alone (one Postgres connection
+  ## each, per worker) can exceed postgres.maxConnections before kamailio
+  ## finishes starting up. 4/4 is plenty for a single-node deployment --
+  ## raise both this and postgres.maxConnections together if you scale up.
+  children: 4
+  tcpChildren: 4
   ## SIP Service. `ports` is a plain list of Kubernetes ServicePort objects --
   ## also what the pod's own containerPort list is rendered from, so the two
   ## can never drift. Names/ports are fixed by the kamailio config tree
