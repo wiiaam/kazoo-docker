@@ -48,7 +48,7 @@ COPY modules.conf /usr/src/freeswitch/modules.conf
 WORKDIR /usr/src/freeswitch
 RUN ./bootstrap.sh -j \
  && ./configure \
- && make \
+ && make -j"$(nproc)" \
  && make install
 
 # mod_kazoo is built in-tree (event_handlers/mod_kazoo via modules.conf), the

@@ -1,3 +1,16 @@
+FROM alpine:3 AS build
+
+# Fetch + extract only -- kept out of the runtime stage so curl doesn't ship
+# in the final nginx image.
+ARG MONSTER_UI_TARBALL_URL="https://github.com/kazoo-classic/monster-ui/releases/download/v4.3.1-allapps/monster-ui-4.3.c1-allapps.tar.gz"
+
+RUN apk add --no-cache curl \
+    && mkdir -p /monster-ui \
+    && curl -fsSL -o /tmp/monster-ui.tgz "$MONSTER_UI_TARBALL_URL" \
+    && tar xzf /tmp/monster-ui.tgz -C /monster-ui --strip-components=1 \
+    && rm -f /tmp/monster-ui.tgz
+
+# ---- runtime image ----
 FROM nginx:stable-alpine
 
 # Kazoo Classic Monster-UI 4.3 (allapps bundle) served by nginx.
@@ -6,13 +19,7 @@ FROM nginx:stable-alpine
 ENV WHITELABEL_NAME="Kazoo" \
     APPLICATION_TITLE="Kazoo"
 
-ARG MONSTER_UI_TARBALL_URL="https://github.com/kazoo-classic/monster-ui/releases/download/v4.3.1-allapps/monster-ui-4.3.c1-allapps.tar.gz"
-
-RUN apk add --no-cache curl \
-    && curl -fsSL -o /tmp/monster-ui.tgz "$MONSTER_UI_TARBALL_URL" \
-    && tar xzf /tmp/monster-ui.tgz -C /usr/share/nginx/html --strip-components=1 \
-    && rm -f /tmp/monster-ui.tgz \
-    && chown -R nginx:nginx /usr/share/nginx/html
+COPY --from=build --chown=nginx:nginx /monster-ui /usr/share/nginx/html
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY entrypoint.sh /entrypoint.sh
