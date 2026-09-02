@@ -5,6 +5,7 @@ name: build-kazoo-monster-ui
 
 on:
   push:
+    branches: [main]
     paths:
       - 'images/monster-ui/**'
   pull_request:

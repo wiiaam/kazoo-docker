@@ -5,6 +5,7 @@ name: build-kazoo-kamailio
 
 on:
   push:
+    branches: [main]
     paths:
       - 'images/kamailio/**'
   pull_request:

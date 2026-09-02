@@ -5,6 +5,7 @@ name: build-kazoo-core
 
 on:
   push:
+    branches: [main]
     paths:
       - 'images/kazoo-core/**'
   pull_request:
