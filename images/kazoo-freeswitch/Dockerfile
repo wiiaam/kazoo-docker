@@ -63,6 +63,15 @@ RUN mkdir -p /usr/local/freeswitch/sounds \
  && wget -qO- "https://files.freeswitch.org/releases/sounds/freeswitch-sounds-en-us-callie-8000-${SOUNDS_VERSION}.tar.gz" \
       | tar -xz -C /usr/local/freeswitch/sounds
 
+# Kazoo's upstream config tree for FreeSWITCH (upstream 4.3), cloned here
+# rather than in the runtime stage so the runtime image doesn't need git.
+WORKDIR /opt/kazoo-configs-freeswitch
+RUN git clone --depth 1 --branch 4.3 \
+      https://github.com/2600hz/kazoo-configs-freeswitch repo \
+ && mkdir -p /etc/kazoo/freeswitch \
+ && cp -a repo/freeswitch/. /etc/kazoo/freeswitch/ \
+ && rm -rf repo
+
 # ---- runtime image ----
 FROM debian:11
 
@@ -74,7 +83,7 @@ RUN apt-get update \
       libopencore-amrnb0 libopencore-amrwb0 \
       libavcodec58 libavformat58 libswresample3 libavutil56 libswscale5 \
       libjpeg62-turbo \
-      util-linux openssl ca-certificates adduser erlang-nox git \
+      util-linux openssl ca-certificates adduser erlang-nox \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /usr/local/freeswitch /usr/local/freeswitch
@@ -87,16 +96,12 @@ RUN ldconfig
 
 RUN useradd --system --home-dir /var/lib/kazoo-freeswitch --create-home freeswitch
 
-# Kazoo config tree (upstream 4.3). Our templates/ are laid over it: the
-# upstream files hold static values; the templates substitute env-driven
-# placeholders that entrypoint.sh renders at boot.
-WORKDIR /opt/kazoo-configs-freeswitch
-RUN git clone --depth 1 --branch 4.3 \
-      https://github.com/2600hz/kazoo-configs-freeswitch repo \
- && mkdir -p /etc/kazoo/freeswitch \
- && cp -a repo/freeswitch/. /etc/kazoo/freeswitch/ \
- && rm -rf repo \
- && chown -R root:root /etc/kazoo/freeswitch
+# Kazoo config tree (upstream 4.3), cloned in the build stage above. Our
+# templates/ are laid over it: the upstream files hold static values; the
+# templates substitute env-driven placeholders that entrypoint.sh renders at
+# boot.
+COPY --from=build /etc/kazoo/freeswitch/ /etc/kazoo/freeswitch/
+RUN chown -R root:root /etc/kazoo/freeswitch
 
 COPY templates/autoload_configs/ /etc/kazoo/freeswitch/autoload_configs/
 COPY templates/sip_profiles/ /etc/kazoo/freeswitch/sip_profiles/
