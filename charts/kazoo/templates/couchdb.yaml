@@ -23,6 +23,8 @@ spec:
         - name: couchdb
           image: {{ include "kazoo.image" (dict "ctx" . "name" "couchdb") }}
           imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          resources:
+            {{- toYaml .Values.couchdb.resources | nindent 12 }}
           env:
             - name: COUCHDB_USER
               valueFrom:
@@ -39,10 +41,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "kazoo.secret.name" . }}
                   key: couchSecret
-          ports:
-            - name: http
-              containerPort: 5984
-              protocol: TCP
+          {{- include "kazoo.containerPorts" .Values.couchdb.service.ports | nindent 10 }}
           readinessProbe:
             exec:
               command: ["/bin/sh", "-c", "curl -fsS http://127.0.0.1:5984/_up || exit 1"]
@@ -50,6 +49,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "curl -fsS http://127.0.0.1:5984/_up || exit 1"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 9
           volumeMounts:
             - name: couchdb-data
               mountPath: /opt/couchdb/data

@@ -25,6 +25,8 @@ spec:
         - name: {{ .Chart.Name }}-ecallmgr
           image: {{ include "kazoo.image" (dict "ctx" . "name" "kazooCore") }}
           imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          resources:
+            {{- toYaml .Values.kazooCore.resources | nindent 12 }}
           env:
             - name: KAZOO_NODE
               value: ecallmgr
@@ -64,4 +66,11 @@ spec:
             periodSeconds: 15
             timeoutSeconds: 10
             failureThreshold: 20
+          livenessProbe:
+            exec:
+              command: ["/opt/kazoo/bin/sup", "-n", "ecallmgr", "kz_nodes", "status"]
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
 {{- end }}

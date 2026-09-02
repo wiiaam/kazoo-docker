@@ -23,6 +23,8 @@ spec:
         - name: rabbitmq
           image: {{ include "kazoo.image" (dict "ctx" . "name" "rabbitmq") }}
           imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          resources:
+            {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
           env:
             - name: RABBITMQ_DEFAULT_USER
               valueFrom:
@@ -34,13 +36,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "kazoo.secret.name" . }}
                   key: rabbitPass
-          ports:
-            - name: amqp
-              containerPort: 5672
-              protocol: TCP
-            - name: management
-              containerPort: {{ .Values.rabbitmq.service.mgmtPort }}
-              protocol: TCP
+          {{- include "kazoo.containerPorts" .Values.rabbitmq.service.ports | nindent 10 }}
           readinessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
@@ -48,6 +44,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
             failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 9
           volumeMounts:
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq

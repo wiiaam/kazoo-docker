@@ -4,6 +4,14 @@
 # images' entrypoints already render. See NOTES.txt after `helm install`.
 # Structure follows the kube-prometheus-stack conventions: one section per
 # component, each carrying its own enabled / image / service / storage knobs.
+#
+# Service ports: every component below (except freeswitch, whose ports are
+# partly generated -- see its own section) declares `service.ports` as a
+# plain list of Kubernetes ServicePort objects (name/port/targetPort/
+# protocol/nodePort), rendered by one shared template that drives both the
+# Service and the pod's own containerPort list from the same list, so the two
+# can never drift apart. targetPort defaults to port and protocol defaults to
+# TCP when omitted, same as the Kubernetes API itself.
 
 ## Provide a name in place of "kazoo" for `app:` labels
 ##
@@ -33,8 +41,14 @@ global:
 # ---------------------------------------------------------------------------
 # Shared credentials/secret domain. Change-me defaults keep `helm template`
 # renderable; set real values on install.
+#
+# existingSecret: point at a pre-created Secret with the same keys as the
+# ones below (see templates/secrets.yaml) instead of templating one from the
+# plain values here -- keeps real credentials out of `helm install --set` /
+# `helm get values`. When set, every other key in this block is ignored.
 # ---------------------------------------------------------------------------
 secrets:
+  existingSecret: ""
   erlangCookie: change_me_cookie
   rabbitUser: kazoo
   rabbitPass: change_me_rabbit
@@ -47,17 +61,6 @@ secrets:
   masterRealm: sip.example.local
   masterUser: administrator
   masterPass: change_me_master
-
-## Outbound DNS for the data plane / shared volume/ports section follows.
-## NetworkPolicy: this cluster is default-deny across all pods, so we ship a
-## namespace-wide permissive CiliumNetworkPolicy. `ciliumDefaultAllow: true`
-## renders it (allows same-namespace + the ingress gateway + -- when
-## `allowWorldIngress` is also true -- `world`, which LoadBalancer-exposed SIP
-## and RTP need). Set false on clusters without per-namespace default-deny.
-networkPolicies:
-  ciliumDefaultAllow: false
-  traefikNamespace: traefik
-  allowWorldIngress: true
 
 # ---------------------------------------------------------------------------
 # Subdomain DNS: pods get hostname.* + setHostnameAsFQDN behind a headless
@@ -95,13 +98,20 @@ shared:
 couchdb:
   enabled: true
   image: couchdb:3.2.3
+  ## Pod resource requests/limits (map 1:1 onto the container's `resources:`).
+  ## Empty by default -- this chart ships no opinionated defaults; set these
+  ## before running anything beyond a lab install.
+  resources: {}
   service:
     enabled: true
     type: ClusterIP
     ## Service name -- also the in-cluster DNS name kazoo uses as its Couch
     ## host. Set a custom one if you run several stacks in one namespace.
     name: couchdb
-    port: 5984
+    ports:
+      - name: http
+        port: 5984
+        targetPort: 5984
     ## Extra labels/annotations + Service spec passthrough (maps 1:1 onto the
     ## Service resource). Repeated on every component -- see kamailio for docs.
     labels: {}
@@ -119,12 +129,18 @@ couchdb:
 rabbitmq:
   enabled: true
   image: rabbitmq:3.13.7-management
+  resources: {}
   service:
     enabled: true
     type: ClusterIP
     name: rabbitmq
-    port: 5672
-    mgmtPort: 15672
+    ports:
+      - name: amqp
+        port: 5672
+        targetPort: 5672
+      - name: management
+        port: 15672
+        targetPort: 15672
     labels: {}
     annotations: {}
     externalTrafficPolicy: ""
@@ -140,12 +156,19 @@ rabbitmq:
 postgres:
   enabled: true
   image: postgres:13
-  maxConnections: 1000
+  ## Each connection carries real shared-memory overhead; kamailio's own DB
+  ## connection pool is the only real consumer here, so this is generous
+  ## headroom rather than sized for 1000 real concurrent connections.
+  maxConnections: 200
+  resources: {}
   service:
     enabled: true
     type: ClusterIP
     name: postgres
-    port: 5432
+    ports:
+      - name: postgres
+        port: 5432
+        targetPort: 5432
     labels: {}
     annotations: {}
     externalTrafficPolicy: ""
@@ -160,11 +183,13 @@ postgres:
 #   kazoo-apps (Crossbar REST API, runs kazoo-init.sh bootstrap)
 #   ecallmgr   (media controller, owns the FreeSWITCH connection)
 # Service here is the Crossbar API endpoint served by the kazoo-apps pod.
+# `resources` applies to both the kazoo-apps and ecallmgr containers.
 # ---------------------------------------------------------------------------
 kazooCore:
   enabled: true
   image: ghcr.io/wiiaam/kazoo-core:latest
   replicaCount: 1
+  resources: {}
   ## Crossbar API external access via a Gateway API HTTPRoute (optional).
   ## Requires the Gateway API CRDs (gateway.networking.k8s.io/v1); TLS
   ## terminates on the Gateway, not on the HTTPRoute itself. When enabled and
@@ -191,9 +216,11 @@ kazooCore:
     enabled: true
     type: ClusterIP   # ClusterIP | NodePort | none (none = port-forward only)
     name: crossbar
-    port: 8000
-    targetPort: 8000
-    nodePort: ""
+    ports:
+      - name: crossbar
+        port: 8000
+        targetPort: 8000
+        nodePort: ""
     labels: {}
     annotations: {}
     externalTrafficPolicy: ""
@@ -207,11 +234,12 @@ kamailio:
   enabled: true
   image: ghcr.io/wiiaam/kazoo-kamailio:latest
   replicaCount: 1
+  resources: {}
   ## Address kamailio advertises in Via/Contact/Record-Route -- what phones
   ## actually send packets back to. Phones must reach it exactly at
-  ## advertiseIP:5060. In LoadBalancer mode set this to the LB DNS name
-  ## (e.g. sip.example.com) or IP; in hostPort mode to the node's LAN IP.
-  ## Empty -> entrypoint picks pod IP (in-cluster only).
+  ## advertiseIP:5060. Set this to the LoadBalancer's DNS name (e.g.
+  ## sip.example.com) or IP. Empty -> entrypoint picks pod IP (in-cluster
+  ## only).
   advertiseIP: ""
   ## Address kamailio announces as the registration "Proxy-Path" (what ecallmgr
   ## uses to route the callee leg back through kamailio when FreeSWITCH dials a
@@ -220,27 +248,48 @@ kamailio:
   ## that the cluster's resolver may not honor) set this to the kamailio LB IP
   ## so the terminating leg is deterministic: e.g. "192.168.10.129".
   registrarPath: ""
-  ## Pod-level hostPort for single-node labs (SIP 5060 straight on the node,
-  ## keep advertiseIP = node LAN IP). For a real deployment use the Service
-  ## below (type: LoadBalancer) and leave type: none here.
-  external:
-    type: hostPort   # hostPort | none
-    hostPort: 5060
   ## Shared memory / pkg memory for the kamailio process
   shmMemory: 256
   pkgMemory: 16
-  ## SIP Service. Ports are fixed (5060/5061/7000); type is generic -- expose
-  ## to phones with `type: LoadBalancer` (+ labels/annotations for the LB pool
-  ## / IP). The advertised port always equals 5060, so `advertiseIP` must
-  ## resolve exactly to the LB service on :5060.
+  ## SIP Service. `ports` is a plain list of Kubernetes ServicePort objects --
+  ## also what the pod's own containerPort list is rendered from, so the two
+  ## can never drift. Names/ports are fixed by the kamailio config tree
+  ## (dispatcher/advertise all assume 5060/5061/7000); the advertised port
+  ## always equals 5060, so `advertiseIP` must resolve exactly to the LB
+  ## service on :5060. Expose to phones with `type: LoadBalancer` (+ labels/
+  ## annotations for the LB pool / IP). `nodePort` only takes effect with
+  ## `type: NodePort`.
   service:
     enabled: true
     type: ClusterIP   # ClusterIP | NodePort | LoadBalancer
     name: kamailio
-    udp: 5060
-    tcp: 5060
-    tls: 5061
-    ws: 7000
+    ports:
+      - name: sip-udp
+        port: 5060
+        targetPort: 5060
+        protocol: UDP
+        nodePort: ""
+      - name: sip-tcp
+        port: 5060
+        targetPort: 5060
+        protocol: TCP
+        nodePort: ""
+      - name: sip-tls-udp
+        port: 5061
+        targetPort: 5061
+        protocol: UDP
+      - name: sip-tls-tcp
+        port: 5061
+        targetPort: 5061
+        protocol: TCP
+      - name: ws-udp
+        port: 7000
+        targetPort: 7000
+        protocol: UDP
+      - name: ws-tcp
+        port: 7000
+        targetPort: 7000
+        protocol: TCP
     ## Extra labels/annotations + Service spec passthrough (LB pool selection,
     ## loadBalancerIP/IP pinning, externalTrafficPolicy, ...) -- maps 1:1 onto
     ## the Service resource.
@@ -249,46 +298,54 @@ kamailio:
     externalTrafficPolicy: ""
     loadBalancerIP: ""
     loadBalancerSourceRanges: []
-    nodePort: ""
 
 # ---------------------------------------------------------------------------
 # FreeSWITCH + mod_kazoo. SIP + RTP reachable from outside the cluster via the
-# LoadBalancer Service or (single-node labs) hostPort/hostNetwork.
+# LoadBalancer Service.
+#
+# Unlike the other components, FreeSWITCH's ports aren't a flat values list:
+# sipPort/erlangDistPort are read directly by several other templates
+# (kamailio's FREESWITCH_SIP_ADDRESS, the env vars below, ...) so they stay
+# plain scalars here rather than being buried in a ports list, and the RTP
+# range is 129 sequential ports generated from rtpStartPort/rtpEndPort -- not
+# something you'd hand-list in values either way. Both the Service and the
+# pod's containerPort list are built from these same scalars in the template,
+# so they can't drift from each other.
 # ---------------------------------------------------------------------------
 freeswitch:
   enabled: true
   image: ghcr.io/wiiaam/kazoo-freeswitch:latest
   replicaCount: 1
+  resources: {}
   ## Range published / bound for RTP media.
   rtpStartPort: 16384
   rtpEndPort: 16512
   ## SIP + Erlang dist ports (also the in-cluster service ports below).
   sipPort: 11000
   erlangDistPort: 8031
-  ## IP advertised to phones for SIP signaling (KAZOO_LOCAL_ADDRESS -> ext-sip)
-  ## and RTP (EXT_RTP_IP). For LoadBalancer exposure set publicIP to the LB DNS
-  ## name (e.g. sip.example.com) so phones get the right Contact/SDP address.
-  ## Empty -> falls back to the pod IP (in-cluster only). The *local* SIP bind
-  ## (sip-ip, KAZOO_ADDRESS) is ALWAYS a bindable local address: the pod IP via
-  ## the downward API, or `localIP` below to force a specific/single-host bind.
-  publicIP: ""
+  ## IP advertised to phones for SIP signaling (-> KAZOO_LOCAL_ADDRESS ->
+  ## ext-sip-ip). Named to match the upstream Kazoo env var -- despite the
+  ## "local" in that name, this is the EXTERNALLY-routable address, not a
+  ## bind address (that's kazooAddress below). For LoadBalancer exposure set
+  ## this to the LB DNS name (e.g. sip.example.com) so phones get the right
+  ## Contact/SDP address. Empty -> falls back to the pod IP (in-cluster only).
+  kazooLocalAddress: ""
+  ## RTP advertise address (-> EXT_RTP_IP -> ext-rtp-ip). Falls back to
+  ## kazooLocalAddress automatically (see images/kazoo-freeswitch/
+  ## entrypoint.sh) since SIP and RTP normally share the same external path --
+  ## only set this separately if yours don't.
   extRtpIP: ""
-  ## Force the local SIP bind address (sip-ip / KAZOO_ADDRESS) instead of the
-  ## pod's own IP (status.podIP). Only useful with hostPort/hostNetwork single-
-  ## node labs or a fixed container IP; leave empty otherwise.
-  localIP: ""
-  ## Pod-level network knobs for single-node labs. Leave type: none and use the
-  ## Service below (type: LoadBalancer) for real deployments.
-  external:
-    type: none        # hostNetwork | hostPort | none
-    hostPortSip: 11000
+  ## The actual local SIP bind address (-> KAZOO_ADDRESS -> sip-ip). Almost
+  ## always left empty: defaults to the pod's own IP via the downward API.
+  ## Only set this to force a specific/fixed bind address.
+  kazooAddress: ""
   ## Erlang dist long name + what ecallmgr is seeded to ping. Default keeps
   ## the classic compose identity; "<node>.kazoo" resolves via subdomain DNS.
   nodeName: freeswitch@freeswitch.kazoo
-  ## FreeSWITCH Service. It already carries SIP 11000 + Erlang dist (8031, for
-  ## ecallmgr) in-cluster. `includeRtp: true` appends the RTP slice
-  ## (16384-16512) -- set that with type: LoadBalancer to expose media for WAN
-  ## DNAT. labels/annotations/spec extras pass through to the Service.
+  ## FreeSWITCH Service. It already carries SIP + Erlang dist (for ecallmgr)
+  ## in-cluster. `includeRtp: true` appends the RTP slice -- set that with
+  ## type: LoadBalancer to expose media for WAN DNAT. labels/annotations/spec
+  ## extras pass through to the Service.
   service:
     enabled: true
     type: ClusterIP   # ClusterIP | LoadBalancer
@@ -311,6 +368,7 @@ monsterUi:
   enabled: true
   image: ghcr.io/wiiaam/kazoo-monster-ui:latest
   replicaCount: 1
+  resources: {}
   whitelabelName: Kazoo
   applicationTitle: Kazoo Classic
   ## Overrides the browser-default http://<browser-host>:8000/v2/ in js/config.js.
@@ -344,9 +402,11 @@ monsterUi:
     enabled: true
     type: ClusterIP   # ClusterIP | NodePort | none
     name: monster-ui
-    port: 8080
-    targetPort: 80
-    nodePort: ""
+    ports:
+      - name: http
+        port: 8080
+        targetPort: 80
+        nodePort: ""
     labels: {}
     annotations: {}
     externalTrafficPolicy: ""

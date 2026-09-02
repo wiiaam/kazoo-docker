@@ -34,6 +34,8 @@ spec:
         - name: {{ .Chart.Name }}-monster-ui
           image: {{ include "kazoo.image" (dict "ctx" . "name" "monsterUi") }}
           imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          resources:
+            {{- toYaml .Values.monsterUi.resources | nindent 12 }}
           env:
             - name: WHITELABEL_NAME
               value: {{ .Values.monsterUi.whitelabelName | quote }}
@@ -43,10 +45,7 @@ spec:
             - name: API_URL
               value: {{ .Values.monsterUi.apiUrl | quote }}
             {{- end }}
-          ports:
-            - name: http
-              containerPort: 80
-              protocol: TCP
+          {{- include "kazoo.containerPorts" .Values.monsterUi.service.ports | nindent 10 }}
           readinessProbe:
             exec:
               command: ["/bin/sh", "-c", "wget -qO- http://127.0.0.1/ping >/dev/null || exit 1"]
@@ -54,6 +53,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "wget -qO- http://127.0.0.1/ping >/dev/null || exit 1"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 9
           volumeMounts:
             {{- if .Values.shared.enabled }}
             - name: shared
