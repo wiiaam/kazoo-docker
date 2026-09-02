@@ -62,17 +62,6 @@ secrets:
   masterUser: administrator
   masterPass: change_me_master
 
-## Outbound DNS for the data plane / shared volume/ports section follows.
-## NetworkPolicy: this cluster is default-deny across all pods, so we ship a
-## namespace-wide permissive CiliumNetworkPolicy. `ciliumDefaultAllow: true`
-## renders it (allows same-namespace + the ingress gateway + -- when
-## `allowWorldIngress` is also true -- `world`, which LoadBalancer-exposed SIP
-## and RTP need). Set false on clusters without per-namespace default-deny.
-networkPolicies:
-  ciliumDefaultAllow: false
-  traefikNamespace: traefik
-  allowWorldIngress: true
-
 # ---------------------------------------------------------------------------
 # Subdomain DNS: pods get hostname.* + setHostnameAsFQDN behind a headless
 # Service so `hostname -f` is dotted (Erlang long-name requirement) and
