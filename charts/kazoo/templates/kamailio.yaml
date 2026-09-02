@@ -62,7 +62,7 @@ spec:
             - name: PG_DB
               value: kamailio
             - name: FREESWITCH_SIP_ADDRESS
-              value: {{ if .Values.freeswitch.publicIP }}{{ printf "%s:%d" .Values.freeswitch.publicIP (int .Values.freeswitch.sipPort) }}{{ else }}{{ printf "%s:%d" (include "kazoo.service" (dict "ctx" . "name" "freeswitch")) (int .Values.freeswitch.sipPort) }}{{ end }}
+              value: {{ if .Values.freeswitch.kazooLocalAddress }}{{ printf "%s:%d" .Values.freeswitch.kazooLocalAddress (int .Values.freeswitch.sipPort) }}{{ else }}{{ printf "%s:%d" (include "kazoo.service" (dict "ctx" . "name" "freeswitch")) (int .Values.freeswitch.sipPort) }}{{ end }}
             - name: KAMAILIO_SHM_MEMORY
               value: {{ .Values.kamailio.shmMemory | quote }}
             - name: KAMAILIO_PKG_MEMORY
@@ -71,15 +71,9 @@ spec:
             - name: sip-udp
               containerPort: 5060
               protocol: UDP
-              {{- if eq .Values.kamailio.external.type "hostPort" }}
-              hostPort: {{ .Values.kamailio.external.hostPort }}
-              {{- end }}
             - name: sip-tcp
               containerPort: 5060
               protocol: TCP
-              {{- if eq .Values.kamailio.external.type "hostPort" }}
-              hostPort: {{ .Values.kamailio.external.hostPort }}
-              {{- end }}
             - name: sip-tls-udp
               containerPort: 5061
               protocol: UDP

@@ -22,10 +22,6 @@ spec:
       hostname: freeswitch
       subdomain: {{ .Values.subdomain }}
       setHostnameAsFQDN: true
-      {{- if eq .Values.freeswitch.external.type "hostNetwork" }}
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      {{- end }}
       containers:
         - name: {{ .Chart.Name }}-freeswitch
           image: {{ include "kazoo.image" (dict "ctx" . "name" "freeswitch") }}
@@ -63,16 +59,16 @@ spec:
             - name: RTP_END_PORT
               value: {{ .Values.freeswitch.rtpEndPort | quote }}
             - name: KAZOO_ADDRESS
-              {{- if .Values.freeswitch.localIP }}
-              value: {{ .Values.freeswitch.localIP | quote }}
+              {{- if .Values.freeswitch.kazooAddress }}
+              value: {{ .Values.freeswitch.kazooAddress | quote }}
               {{- else }}
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
               {{- end }}
-            {{- if .Values.freeswitch.publicIP }}
+            {{- if .Values.freeswitch.kazooLocalAddress }}
             - name: KAZOO_LOCAL_ADDRESS
-              value: {{ .Values.freeswitch.publicIP | quote }}
+              value: {{ .Values.freeswitch.kazooLocalAddress | quote }}
             {{- end }}
             {{- if .Values.freeswitch.extRtpIP }}
             - name: EXT_RTP_IP
@@ -82,23 +78,16 @@ spec:
             - name: sip-udp
               containerPort: {{ .Values.freeswitch.sipPort }}
               protocol: UDP
-              {{- if eq .Values.freeswitch.external.type "hostPort" }}
-              hostPort: {{ .Values.freeswitch.external.hostPortSip }}
-              {{- end }}
             - name: sip-tcp
               containerPort: {{ .Values.freeswitch.sipPort }}
               protocol: TCP
-              {{- if eq .Values.freeswitch.external.type "hostPort" }}
-              hostPort: {{ .Values.freeswitch.external.hostPortSip }}
-              {{- end }}
             - name: erlang-dist
               containerPort: {{ .Values.freeswitch.erlangDistPort }}
               protocol: TCP
             - name: epmd
               containerPort: 4369
               protocol: TCP
-            {{- if or (eq .Values.freeswitch.external.type "hostPort") .Values.freeswitch.service.includeRtp }}
-            {{- $extType := .Values.freeswitch.external.type }}
+            {{- if .Values.freeswitch.service.includeRtp }}
             {{- $rtpStart := int .Values.freeswitch.rtpStartPort }}
             {{- $rtpEnd := int .Values.freeswitch.rtpEndPort }}
             {{- $rtpCount := add (sub $rtpEnd $rtpStart) 1 | toString | int }}
@@ -106,9 +95,6 @@ spec:
             - name: rtp-{{ add $rtpStart $i }}
               containerPort: {{ add $rtpStart $i }}
               protocol: UDP
-              {{- if eq $extType "hostPort" }}
-              hostPort: {{ add $rtpStart $i }}
-              {{- end }}
             {{- end }}
             {{- end }}
           readinessProbe:

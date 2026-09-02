@@ -75,12 +75,9 @@ there). Ports on the Services are fixed, so what you advertise is:
     match. Your router/firewall DNATs WAN 5060 into the LB IP.
   * For FreeSWITCH media: freeswitch.service.type=LoadBalancer +
     freeswitch.service.includeRtp=true exposes SIP 11000 + the RTP slice
-    (16384-16512) on the same LB. Advertise freeswitch.publicIP (and extRtpIP
-    if different) at that DNS name; DNAT WAN SIP+RTP into the LB IP.
-  * Single-node lab only: kamailio.external.type=hostPort (SIP 5060 on the
-    node, kamailio.advertiseIP = node LAN IP) and
-    freeswitch.external.type=hostPort / hostNetwork. type: none (default) is
-    in-cluster only -- phones outside cannot reach RTP.
+    (16384-16512) on the same LB. Advertise freeswitch.kazooLocalAddress (and
+    extRtpIP only if it needs to differ) at that DNS name; DNAT WAN SIP+RTP
+    into the LB IP.
 
 ## 7. Notes / limitations
   * This chart is single-replica: CouchDB/RabbitMQ/PostgreSQL are one-node
