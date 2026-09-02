@@ -30,7 +30,7 @@ Phones must reach kamailio at exactly the address it advertises in its SIP
 headers, or registration and call teardown silently fail:
   * kamailio.service.type=LoadBalancer + kamailio.advertiseIP=<LB DNS/IP>
   * freeswitch.service.type=LoadBalancer + freeswitch.service.includeRtp=true
-    + freeswitch.kazooLocalAddress=<same LB DNS/IP> for the RTP media path
+    + freeswitch.extSipIP=<same LB DNS/IP> for the RTP media path
 Both default to ClusterIP (in-cluster only) until you set these.
 
 ## 5. Optional: Gateway API HTTPRoutes

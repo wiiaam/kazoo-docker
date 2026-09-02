@@ -177,17 +177,17 @@ services:
       KZ_AMQP_HOST: rabbitmq
       KZ_AMQP_VHOST: /
       KZ_AMQP_ZONE: local
-      # EXT_RTP_IP: advertised in SDP for RTP media specifically.
-      # KAZOO_ADDRESS/KAZOO_LOCAL_ADDRESS: advertised for SIP signaling
-      # (Contact/Via) and used to build the Erlang distribution nodename.
-      # All three are genuinely separate template tokens in this
-      # entrypoint -- confirmed against the real script, not dead vars.
-      # They're set to the same value here because this is a single-host
-      # lab; keep that in mind if signaling and media ever need to be
-      # advertised at different addresses later (e.g. split SBC/media relay).
+      # EXT_RTP_IP: advertised in SDP for RTP media (ext-rtp-ip).
+      # EXT_SIP_IP: advertised for SIP signaling/Contact/Via (ext-sip-ip).
+      # Both genuinely separate template tokens in the entrypoint; set to the
+      # same value here since this is a single-host lab -- keep that in mind
+      # if signaling and media ever need to be advertised at different
+      # addresses later (e.g. split SBC/media relay). Unset, either falls
+      # back to FreeSWITCH's own $${local_ip_v4} auto-detection (same as
+      # sip-ip/rtp-ip) -- there's no separate KAZOO_ADDRESS/container-IP
+      # variable feeding this anymore.
       EXT_RTP_IP: ${FS_PUBLIC_IP:-192.168.1.188}
-      KAZOO_LOCAL_ADDRESS: ${FS_PUBLIC_IP:-192.168.1.188}
-      KAZOO_ADDRESS: ${FS_PUBLIC_IP:-192.168.1.188}
+      EXT_SIP_IP: ${FS_PUBLIC_IP:-192.168.1.188}
       # Clamp the RTP range so only a small UDP slice needs publishing.
       RTP_START_PORT: 16384
       RTP_END_PORT: 16512

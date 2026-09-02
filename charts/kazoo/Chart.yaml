@@ -2,7 +2,7 @@ apiVersion: v2
 name: kazoo
 description: Kazoo Classic 4.3 (community 2600Hz fork) telephony stack -- crossbar, FreeSWITCH (mod_kazoo), Kamailio, CouchDB, RabbitMQ, PostgreSQL, Monster-UI
 type: application
-version: 0.5.0
+version: 0.6.0
 appVersion: "4.3"
 home: https://github.com/wiiaam/kazoo-docker
 sources:

@@ -320,7 +320,7 @@ Shared values that everything hangs on (real values live in `.env`):
    `sup ecallmgr_fs_nodes summary` lists `freeswitch@freeswitch.kazoo | true`.
 2. **Advertised-address topology** — kamailio must `advertise` the host-reachable
    IP (`KAMAILIO_PUBLIC_IP`) in Via/Contact/Record-Route on UDP/TCP 5060 + 7000,
-   or phones drop in-dialog BYE/ACK. FS advertises `KAZOO_LOCAL_ADDRESS`
+   or phones drop in-dialog BYE/ACK. FS advertises `EXT_SIP_IP`
    (=`FS_PUBLIC_IP`) as ext-sip and `EXT_RTP_IP` for RTP; SIP 11000 + the RTP
    slice are published to the host. On Docker Desktop the host IP is the LAN
    address (set it in `.env`); `127.0.0.1` only works from the host itself.

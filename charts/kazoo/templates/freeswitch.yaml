@@ -64,17 +64,9 @@ spec:
               value: {{ .Values.freeswitch.rtpStartPort | quote }}
             - name: RTP_END_PORT
               value: {{ .Values.freeswitch.rtpEndPort | quote }}
-            - name: KAZOO_ADDRESS
-              {{- if .Values.freeswitch.kazooAddress }}
-              value: {{ .Values.freeswitch.kazooAddress | quote }}
-              {{- else }}
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.podIP
-              {{- end }}
-            {{- if .Values.freeswitch.kazooLocalAddress }}
-            - name: KAZOO_LOCAL_ADDRESS
-              value: {{ .Values.freeswitch.kazooLocalAddress | quote }}
+            {{- if .Values.freeswitch.extSipIP }}
+            - name: EXT_SIP_IP
+              value: {{ .Values.freeswitch.extSipIP | quote }}
             {{- end }}
             {{- if .Values.freeswitch.extRtpIP }}
             - name: EXT_RTP_IP

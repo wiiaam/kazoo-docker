@@ -4,23 +4,26 @@
 # templates under /etc/kazoo/freeswitch, then execs FreeSWITCH as PID 1.
 #
 # Bridge/K8s-safe defaults: services reach each other by DNS name, so
-# KZ_AMQP_HOST defaults to the compose service name (rabbitmq), the SIP/web
-# addresses bind 0.0.0.0 via the container IP from `hostname -I`, and the
-# event socket listens on 0.0.0.0 (ecallmgr connects to it over the network).
+# KZ_AMQP_HOST defaults to the compose service name (rabbitmq); sip-ip/rtp-ip
+# in the sofia profile bind via FreeSWITCH's own $${local_ip_v4}
+# auto-detection, and the event socket listens on 0.0.0.0 (ecallmgr connects
+# to it over the network).
 set -euo pipefail
 
 : "${ERLANG_COOKIE:?ERLANG_COOKIE must be set}"
 : "${RABBIT_USER:?RABBIT_USER must be set}"
 : "${RABBIT_PASS:?RABBIT_PASS must be set}"
 
-KAZOO_ADDRESS="${KAZOO_ADDRESS:-$(hostname -I | awk '{print $1}')}"
-KAZOO_LOCAL_ADDRESS="${KAZOO_LOCAL_ADDRESS:-$KAZOO_ADDRESS}"
+# Address advertised in SIP signaling (Contact/Via). Unset -> the literal
+# string '$${local_ip_v4}', i.e. defer to FreeSWITCH's own auto-detection
+# (the same one sip-ip already uses) instead of a second, possibly-divergent
+# guess at the container's IP.
+DEFAULT_LOCAL_IP='$${local_ip_v4}'
+EXT_SIP_IP="${EXT_SIP_IP:-$DEFAULT_LOCAL_IP}"
 # Address advertised in SDP for RTP. Must be reachable by the remote phone:
 # the machine hosting Docker Desktop, with the RTP port range published to it.
-# Falls back to KAZOO_LOCAL_ADDRESS (the advertised SIP address) rather than
-# the raw container IP, since SIP and RTP normally share the same external
-# path -- setting only KAZOO_LOCAL_ADDRESS is enough for the common case.
-EXT_RTP_IP="${EXT_RTP_IP:-$KAZOO_LOCAL_ADDRESS}"
+# Falls back to DEFAULT_LOCAL_IP
+EXT_RTP_IP="${EXT_RTP_IP:-$DEFAULT_LOCAL_IP}"
 # Must be freeswitch@<dotted fqdn>: Erlang long-name dist (shortname=false)
 # requires a dot in the host portion, and kazoo's kz_dist.erl special-cases a
 # node literally named "freeswitch". Compose sets `hostname:` to a dotted
@@ -59,8 +62,7 @@ render() {
          -e "s/KAZOO_NODENAME/${KAZOO_NODENAME}/g" \
          -e "s/EVENT_BIND_IP/${EVENT_BIND_IP}/g" \
          -e "s/EVENT_PORT/${EVENT_PORT}/g" \
-         -e "s/KAZOO_LOCAL_ADDRESS/${KAZOO_LOCAL_ADDRESS}/g" \
-         -e "s/KAZOO_ADDRESS/${KAZOO_ADDRESS}/g" \
+         -e "s/EXT_SIP_IP/${EXT_SIP_IP}/g" \
          -e "s/TLS_SIP_PORT/${TLS_SIP_PORT}/g" \
          -e "s/SIP_PORT/${SIP_PORT}/g" \
          -e "s/RTP_START_PORT/${RTP_START_PORT}/g" \
@@ -75,8 +77,7 @@ render() {
 echo "=================================================="
 echo " kazoo-docker-freeswitch startup"
 echo "=================================================="
-echo " > KAZOO_ADDRESS       : ${KAZOO_ADDRESS}"
-echo " > KAZOO_LOCAL_ADDRESS : ${KAZOO_LOCAL_ADDRESS}"
+echo " > EXT_SIP_IP          : ${EXT_SIP_IP}"
 echo " > KAZOO_NODENAME      : ${KAZOO_NODENAME}"
 echo " > KAZOO_COOKIE        : ${ERLANG_COOKIE}"
 echo " > KAZOO_PORT (erlang) : ${KAZOO_PORT}"
@@ -101,7 +102,7 @@ mkdir -p "$CERTS_DIR"
 if [ ! -s "${CERTS_DIR}/wss.pem" ]; then
   echo ">>> No WSS certificate at ${CERTS_DIR}/wss.pem, generating a self-signed one..."
   openssl req -x509 -newkey rsa:2048 -keyout /tmp/wss.key -out /tmp/wss.crt \
-    -days 3650 -nodes -subj "/CN=${KAZOO_ADDRESS}"
+    -days 3650 -nodes -subj "/CN=$(hostname -f)"
   cat /tmp/wss.crt /tmp/wss.key > "${CERTS_DIR}/wss.pem"
   rm -f /tmp/wss.key /tmp/wss.crt
 fi
