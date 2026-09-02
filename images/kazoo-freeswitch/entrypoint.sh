@@ -22,10 +22,8 @@ DEFAULT_LOCAL_IP='$${local_ip_v4}'
 EXT_SIP_IP="${EXT_SIP_IP:-$DEFAULT_LOCAL_IP}"
 # Address advertised in SDP for RTP. Must be reachable by the remote phone:
 # the machine hosting Docker Desktop, with the RTP port range published to it.
-# Falls back to EXT_SIP_IP rather than a separate auto-detect, since SIP and
-# RTP normally share the same external path -- setting only EXT_SIP_IP is
-# enough for the common case.
-EXT_RTP_IP="${EXT_RTP_IP:-$EXT_SIP_IP}"
+# Falls back to DEFAULT_LOCAL_IP
+EXT_RTP_IP="${EXT_RTP_IP:-$DEFAULT_LOCAL_IP}"
 # Must be freeswitch@<dotted fqdn>: Erlang long-name dist (shortname=false)
 # requires a dot in the host portion, and kazoo's kz_dist.erl special-cases a
 # node literally named "freeswitch". Compose sets `hostname:` to a dotted
