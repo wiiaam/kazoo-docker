@@ -68,6 +68,13 @@ RUN apt-get update \
     kamailio-xmpp-modules \
     && rm -rf /var/lib/apt/lists/*
 
+# nat_traversal writes its keepalive state here; the vendor config assumes a
+# real package install already created it, which a from-source build never
+# does. kamailio drops privileges to the kamailio user/group at runtime
+# (entrypoint.sh's -u/-g flags), so it needs write access too.
+RUN mkdir -p /etc/kazoo/kamailio/db \
+    && chown kamailio:kamailio /etc/kazoo/kamailio/db
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
