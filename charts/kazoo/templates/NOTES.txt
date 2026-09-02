@@ -1,92 +1,45 @@
 Kazoo Classic 4.3 deployed: {{ .Release.Name }} (chart {{ .Chart.Version }})
 
-## 1. Make sure the images are pullable
-The kazoo images default to ghcr.io/wiiaam/<image>:latest (the repo's GHCR
-packages); the data plane uses official Docker Hub images. GHCR packages are
-private by default, so either:
-  * make the repo's kazoo-* packages public, or
-  * set global.imagePullSecrets:
-      kubectl create secret docker-registry ghcr-creds \
-        --docker-server=ghcr.io --docker-username=<you> --docker-password=<PAT>
-    and add to the chart values.
-To point a component at another image: --set couchdb.image=custom:tag
-(or global.imageRegistry to force ALL images incl. the official ones through
-one registry).
+## 1. Set your own secrets
+Every change_me_* value in secrets.* is shared across every pod -- replace
+them all before this is anything more than a throwaway test install:
+  --set secrets.erlangCookie=<random> --set secrets.rabbitPass=<pw> \
+  --set secrets.couchPass=<pw> --set secrets.couchSecret=<pw> \
+  --set secrets.postgresPass=<pw> --set secrets.masterPass=<pw>
 
-## 2. Sensible first install (kind / single node)
-  helm install {{ .Release.Name }} . \
-    --set secrets.erlangCookie=<random> \
-    --set secrets.rabbitPass=<pw> \
-    --set secrets.couchPass=<pw> \
-    --set secrets.couchSecret=<pw> \
-    --set secrets.postgresPass=<pw> \
-    --set secrets.masterPass=<pw>
-Replace every change_me_* value -- they are shared secrets across every pod.
-
-## 3. Checking health
+## 2. Watch it come up
   kubectl get pods -w
 The data plane (couchdb/rabbitmq/postgres) must be Ready before kazoo-apps.
-kazoo-apps runs kazoo-init.sh (system-db refresh, master account, fs_nodes
-seed, Monster-UI app registration) on its first boot -- expect it to take
-a few minutes. Verify the FS link from ecallmgr:
-  kubectl exec deploy/{{ .Release.Name }}-ecallmgr -- \
-    sh -c 'cd /opt/kazoo/bin && ./sup ecallmgr_fs_nodes summary'
+kazoo-apps then runs its first-boot bootstrap (system DBs, master account,
+Monster-UI app registration) -- allow a few minutes, and don't be alarmed by
+a couple of CrashLoopBackOff cycles before it settles; the bootstrap is
+idempotent and retries on its own.
 
-## 4. Reaching the UI / API from a browser
-kazooCore.service.type and monsterUi.service.type default to ClusterIP;
-port-forward:
+## 3. Reach the UI / API
+Both default to ClusterIP -- port-forward to reach them locally:
   kubectl port-forward svc/{{ include "kazoo.service" (dict "ctx" . "name" "monsterUi") }} 8080
   kubectl port-forward svc/{{ include "kazoo.service" (dict "ctx" . "name" "kazooCore") }} 8000
-Then open http://localhost:8080 and set the Monster-UI API base to
-http://localhost:8000/v2 appropriately. To actually call back into Crossbar
-the Monster-UI apps must point at a host-reachable Crossbar base. This is
-auto-derived when kazooCore.httpRoute is enabled (kazooCore.httpRoute.hostname
--> https?://<host>/v2); otherwise it falls back to http://localhost:8000/v2.
-Pin it explicitly with --set monsterUi.crossbarApiUrl=... if you proxy
-Crossbar behind your own LB.
+Open http://localhost:8080 and point Monster-UI at http://localhost:8000/v2.
+For Monster-UI to call back into Crossbar itself, it needs a browser-reachable
+Crossbar URL baked in at install time -- set that explicitly with
+--set monsterUi.crossbarApiUrl=... (or enable kazooCore.httpRoute below and
+it's derived automatically).
 
-## 5. HTTP routes (optional, Gateway API)
-Each app carries its own httpRoute so you can expose them independently
-(needs gateway.networking.k8s.io/v1 CRDs installed):
-  helm install {{ .Release.Name }} . \
-    --set kazooCore.httpRoute.enabled=true \
-    --set kazooCore.httpRoute.hostname=api.example.com \
-    --set kazooCore.httpRoute.tls=true \
-    --set monsterUi.httpRoute.enabled=true \
-    --set monsterUi.httpRoute.hostname=ui.example.com
-The Crossbar base auto-derived for Monster-UI comes from
-kazooCore.httpRoute.hostname (https://api.example.com/v2 here; scheme from
-its tls flag). Override with --set monsterUi.crossbarApiUrl=... . Appended
-HTTPRoute rules (matches/filters/backendRefs) go in <comp>.httpRoute.rules.
+## 4. Exposing SIP to real phones
+Phones must reach kamailio at exactly the address it advertises in its SIP
+headers, or registration and call teardown silently fail:
+  * kamailio.service.type=LoadBalancer + kamailio.advertiseIP=<LB DNS/IP>
+  * freeswitch.service.type=LoadBalancer + freeswitch.service.includeRtp=true
+    + freeswitch.kazooLocalAddress=<same LB DNS/IP> for the RTP media path
+Both default to ClusterIP (in-cluster only) until you set these.
 
-## 6. Phone registration (SIP) -- the advertise-IP trap
-Phones MUST reach kamailio at the exact address it advertises in
-Via/Contact/Record-Route, or registrations time out and in-dialog BYE/ACK die.
+## 5. Optional: Gateway API HTTPRoutes
+Needs the gateway.networking.k8s.io/v1 CRDs installed:
+  --set kazooCore.httpRoute.enabled=true --set kazooCore.httpRoute.hostname=api.example.com \
+  --set monsterUi.httpRoute.enabled=true --set monsterUi.httpRoute.hostname=ui.example.com
 
-The component Services are generic: set <comp>.service.type +
-labels/annotations + spec extras and they pass straight through to the Service
-resource (LB pool selection / IP pinning / externalTrafficPolicy all live
-there). Ports on the Services are fixed, so what you advertise is:
-
-  * kamailio.service.type=LoadBalancer (recommended): give the SIP Service an
-    LB IP (e.g. Cilium LB-IPAM -- pick the pool with
-    kamailio.service.labels/annotations). Set kamailio.advertiseIP to the LB
-    DNS name (sip.example.com); the Service keeps SIP on 5060 so Contacts
-    match. Your router/firewall DNATs WAN 5060 into the LB IP.
-  * For FreeSWITCH media: freeswitch.service.type=LoadBalancer +
-    freeswitch.service.includeRtp=true exposes SIP 11000 + the RTP slice
-    (16384-16512) on the same LB. Advertise freeswitch.kazooLocalAddress (and
-    extRtpIP only if it needs to differ) at that DNS name; DNAT WAN SIP+RTP
-    into the LB IP.
-
-## 7. Notes / limitations
-  * This chart is single-replica: CouchDB/RabbitMQ/PostgreSQL are one-node
-    StatefulSets, and more than 1 FreeSWITCH/kamailio replica is untested.
-  * shared.enabled needs a ReadWriteMany volume (default storageClass may be
-    RWO-only; on kind use --set shared.storageClass=<rwx-capable>).
-  * ecallmgr->FreeSWITCH identity is freeswitch@freeswitch.kazoo (default
-    freeswitch.nodeName); pods use hostname.subdomain DNS behind the headless
-    Service named "{{ .Values.subdomain }}".
-  * The kazoo apps first boot is racy against the data plane and may restart;
-    the entrypoint/bootstrap are idempotent, so a couple of CrashLoopBackOff
-    cycles before steady Ready is normal.
+## 6. Known limitations
+  * Single-replica only: the data plane is one-node StatefulSets, and running
+    more than one FreeSWITCH/kamailio replica is untested.
+  * The shared app-metadata volume needs ReadWriteMany storage (set
+    shared.storageClass if your default StorageClass is RWO-only).
