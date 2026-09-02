@@ -156,7 +156,10 @@ rabbitmq:
 postgres:
   enabled: true
   image: postgres:13
-  maxConnections: 1000
+  ## Each connection carries real shared-memory overhead; kamailio's own DB
+  ## connection pool is the only real consumer here, so this is generous
+  ## headroom rather than sized for 1000 real concurrent connections.
+  maxConnections: 200
   resources: {}
   service:
     enabled: true

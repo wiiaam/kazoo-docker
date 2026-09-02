@@ -7,6 +7,10 @@ metadata:
     {{- include "kazoo.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.freeswitch.replicaCount }}
+  # freeswitch-data/freeswitch-log are ReadWriteOnce -- RollingUpdate would try
+  # to attach them to a second pod before the first releases them and hang.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "kazoo.selectorLabels" . | nindent 6 }}
@@ -26,6 +30,8 @@ spec:
         - name: {{ .Chart.Name }}-freeswitch
           image: {{ include "kazoo.image" (dict "ctx" . "name" "freeswitch") }}
           imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          resources:
+            {{- toYaml .Values.freeswitch.resources | nindent 12 }}
           env:
             - name: ERLANG_COOKIE
               valueFrom:
@@ -104,6 +110,13 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 10
             failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /var/run/freeswitch/freeswitch.pid"]
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 8
           volumeMounts:
             - name: freeswitch-data
               mountPath: /var/lib/kazoo-freeswitch

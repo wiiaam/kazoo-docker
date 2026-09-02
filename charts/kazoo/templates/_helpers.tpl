@@ -97,9 +97,15 @@ imagePullSecrets:
 {{- end -}}
 {{- end -}}
 
-# Secret data lookups -- allow --set secrets.* as plain strings
+# Secret name every pod reads creds from -- secrets.existingSecret when set
+# (a pre-created Secret with the same keys as templates/secrets.yaml), else
+# the one this chart templates from the plain secrets.* values.
 {{- define "kazoo.secret.name" -}}
+{{- if .Values.secrets.existingSecret -}}
+{{- .Values.secrets.existingSecret -}}
+{{- else -}}
 {{- printf "%s-secrets" (include "kazoo.fullname" .) -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "kazoo.secretValue" -}}
@@ -127,20 +133,6 @@ imagePullSecrets:
 # "kazoo.default.svc.cluster.local"
 {{- define "kazoo.subdomainFqdnSuffix" -}}
 {{- printf "%s.%s.svc.cluster.local" .Values.subdomain .Release.Namespace -}}
-{{- end -}}
-
-# Probe helper: readinessProbe from "cmd" strings (compose healthchecks)
-{{- define "kazoo.execProbe" -}}
-readinessProbe:
-  exec:
-    command:
-{{- range $c := .cmd }}
-      - {{ $c | quote }}
-{{- end }}
-  initialDelaySeconds: {{ .initialDelaySeconds | default 5 }}
-  periodSeconds: {{ .periodSeconds | default 10 }}
-  timeoutSeconds: {{ .timeoutSeconds | default 5 }}
-  retries: {{ .retries | default 6 }}
 {{- end -}}
 
 # Service `ports:` block from a list of ServicePort-shaped values entries

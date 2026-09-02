@@ -23,6 +23,8 @@ spec:
         - name: rabbitmq
           image: {{ include "kazoo.image" (dict "ctx" . "name" "rabbitmq") }}
           imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          resources:
+            {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
           env:
             - name: RABBITMQ_DEFAULT_USER
               valueFrom:
@@ -42,6 +44,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
             failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 9
           volumeMounts:
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq

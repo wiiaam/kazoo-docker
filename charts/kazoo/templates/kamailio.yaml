@@ -23,6 +23,8 @@ spec:
         - name: {{ .Chart.Name }}-kamailio
           image: {{ include "kazoo.image" (dict "ctx" . "name" "kamailio") }}
           imagePullPolicy: {{ include "kazoo.imagePullPolicy" . }}
+          resources:
+            {{- toYaml .Values.kamailio.resources | nindent 12 }}
           env:
             - name: DOMAIN
               valueFrom:
@@ -80,6 +82,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: 5060
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 9
         {{- if .Values.hepCapture.enabled }}
         - name: heplify
           image: {{ .Values.hepCapture.image }}
