@@ -16,8 +16,8 @@ set -euo pipefail
 
 # Address advertised in SIP signaling (Contact/Via). Unset -> the literal
 # string '$${local_ip_v4}', i.e. defer to FreeSWITCH's own auto-detection
-# (the same one sip-ip already uses) instead of a second, possibly-divergent
-# guess at the container's IP.
+# (the same one sip-ip/rtp-ip already use) instead of a second,
+# possibly-divergent guess at the container's IP.
 DEFAULT_LOCAL_IP='$${local_ip_v4}'
 EXT_SIP_IP="${EXT_SIP_IP:-$DEFAULT_LOCAL_IP}"
 # Address advertised in SDP for RTP. Must be reachable by the remote phone:

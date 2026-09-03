@@ -14,10 +14,13 @@
             <!-- Peers arrive through Docker Desktop's SNAT (source 172.21.0.0/16,
                  the compose bridge gateway), so localnet.auto classifies them as
                  "local" and FS advertises its internal rtp-ip in SDP, which the
-                 phones can never reach.  Narrow local-network-acl to loopback so
-                 FS advertises ext-sip-ip/ext-rtp-ip (the host-reachable public
-                 address) instead. -->
-            <param name="local-network-acl" value="127.0.0.0/8"/>
+                 phones can never reach.  Narrow local-network-acl to loopback.auto
+                 (the actual named ACL FreeSWITCH creates for 127.0.0.0/8 + ::1
+                 a bare "127.0.0.0/8" string here is not a valid ACL name and the
+                 lookup silently never excludes anyone, so ext-sip-ip/ext-rtp-ip
+                 never got used at all) so FS advertises ext-sip-ip/ext-rtp-ip
+                 (the host-reachable public address) instead. -->
+            <param name="local-network-acl" value="loopback.auto"/>
             <!--<param name="apply-register-acl" value="domains"/>-->
 
             <param name="accept-blind-auth" value="true"/>
