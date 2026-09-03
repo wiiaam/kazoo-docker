@@ -16,8 +16,13 @@ set -euo pipefail
 
 # Address advertised in SIP signaling (Contact/Via). Unset -> the literal
 # string '$${local_ip_v4}', i.e. defer to FreeSWITCH's own auto-detection
+<<<<<<< HEAD
 # (the same one sip-ip already uses) instead of a second, possibly-divergent
 # guess at the container's IP.
+=======
+# (the same one sip-ip/rtp-ip already use) instead of a second,
+# possibly-divergent guess at the container's IP.
+>>>>>>> b4e8b366b30ff5aac5b8246f433e8c3642ac57fc
 DEFAULT_LOCAL_IP='$${local_ip_v4}'
 EXT_SIP_IP="${EXT_SIP_IP:-$DEFAULT_LOCAL_IP}"
 # Address advertised in SDP for RTP. Must be reachable by the remote phone:
@@ -131,6 +136,8 @@ else
 fi
 
 FREESWITCH_ARGS="-nonat -conf ${FS_CONFIG} -run /var/run/freeswitch -db ${FS_HOME}/db -log /var/log/freeswitch -cache ${FS_HOME}/cache -sounds /usr/share/kazoo-freeswitch/sounds -storage ${FS_HOME}/storage"
+
+rm /etc/kazoo/freeswitch/sip_profiles/ -r
 
 echo ""
 echo "=================================================="
