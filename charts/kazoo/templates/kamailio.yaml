@@ -63,8 +63,17 @@ spec:
                   key: postgresPass
             - name: PG_DB
               value: kamailio
+            # Always the headless subdomain FQDN (freeswitch.<subdomain>), which
+            # resolves straight to the pod IP -- not the regular freeswitch
+            # Service name/ClusterIP, and not the WAN/ext-sip-ip advertise
+            # address. A ClusterIP here previously leaked into the SDP
+            # FreeSWITCH hands back to the external caller ("call connects, no
+            # audio" -- see AGENTS.md "Solved issues" #9); the WAN address
+            # only works via hairpin NAT and conflates "how kamailio reaches
+            # FreeSWITCH" with "what FreeSWITCH advertises externally" (a
+            # separate, Kazoo application-level concern).
             - name: FREESWITCH_SIP_ADDRESS
-              value: {{ if .Values.freeswitch.extSipIP }}{{ printf "%s:%d" .Values.freeswitch.extSipIP (int .Values.freeswitch.sipPort) }}{{ else }}{{ printf "%s:%d" (include "kazoo.service" (dict "ctx" . "name" "freeswitch")) (int .Values.freeswitch.sipPort) }}{{ end }}
+              value: {{ printf "freeswitch.%s:%d" .Values.subdomain (int .Values.freeswitch.sipPort) }}
             - name: KAMAILIO_SHM_MEMORY
               value: {{ .Values.kamailio.shmMemory | quote }}
             - name: KAMAILIO_PKG_MEMORY
