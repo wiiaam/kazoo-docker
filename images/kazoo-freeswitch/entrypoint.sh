@@ -67,7 +67,6 @@ render() {
          -e "s/EXT_RTP_IP/${EXT_RTP_IP}/g" \
          "${FS_CONFIG}/autoload_configs/kazoo.conf.xml" \
          "${FS_CONFIG}/autoload_configs/event_socket.conf.xml" \
-         "${FS_CONFIG}/sip_profiles/sipinterface_1.xml" \
          "${FS_CONFIG}/autoload_configs/switch.conf.xml"
 }
 

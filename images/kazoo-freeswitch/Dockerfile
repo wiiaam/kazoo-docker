@@ -104,7 +104,19 @@ COPY --from=build /etc/kazoo/freeswitch/ /etc/kazoo/freeswitch/
 RUN chown -R root:root /etc/kazoo/freeswitch
 
 COPY templates/autoload_configs/ /etc/kazoo/freeswitch/autoload_configs/
-COPY templates/sip_profiles/ /etc/kazoo/freeswitch/sip_profiles/
+
+# sipinterface_1 is served dynamically by ecallmgr instead of from a local
+# file (system_config/ecallmgr sofia_conf=true, fs_profiles mirrors these
+# settings) so that BYOC resource gateways with "register":true get pushed to
+# FreeSWITCH without an image rebuild -- ecallmgr_fs_gateways only feeds a
+# gateway list into the sofia.conf FreeSWITCH fetches over the wire, it never
+# writes to a local sip_profiles file. A local sofia.conf.xml (ours above, or
+# the upstream default from the COPY --from=build layer) would satisfy
+# FreeSWITCH's own XML lookup first and permanently block that fetch, so both
+# it and the now-unused static profile must be removed, not just left
+# unreferenced.
+RUN rm -f /etc/kazoo/freeswitch/autoload_configs/sofia.conf.xml \
+ && rm -rf /etc/kazoo/freeswitch/sip_profiles
 
 # Kazoo expects sounds at /usr/share/kazoo-freeswitch/sounds.
 RUN mkdir -p /usr/share/kazoo-freeswitch \
