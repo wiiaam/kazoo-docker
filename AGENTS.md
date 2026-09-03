@@ -5,13 +5,18 @@ Working knowledge for agents operating on this repo.
 ## Goal & status
 
 - **Goal**: a Dockerized **Kazoo Classic 4.3** stack (community hard-fork of
-  2600Hz Kazoo v4.3) on a single Docker-Desktop host, passing device-to-device
-  SIP calls between registered MicroSIP softphones (`admin` ↔ `tester`): ring,
-  answer, two-way audio, clean hangup in both directions.
-- **Status**: all containers healthy; both devices registered via kamailio
-  (over TCP, with host-reachable contacts); ecallmgr is connected to FreeSWITCH
-  (`freeswitch@freeswitch.kazoo`, dist 8031) — the historic "All Servers Busy"
-  blocker is **solved**. Next validated step is an actual media call in MicroSIP.
+  2600Hz Kazoo v4.3), deployable both via `compose.yaml` (single-host dev/lab)
+  and the `charts/kazoo` Helm chart (Kubernetes, the production target).
+- **Status**: both topologies are validated. Device-to-device SIP calls work
+  end-to-end (ring, answer, two-way audio, clean hangup) on a live k8s
+  deployment — not just compose. A carrier SIP trunk (BYOC resource,
+  registration-based, not IP-ACL) registers and places outbound calls
+  successfully; see "SIP profile serving & carrier trunk registration" below
+  for the mechanism, since it required a real architecture change (FreeSWITCH's
+  SIP profile is now served dynamically by ecallmgr, not baked into the image).
+  Inbound DID delivery through that trunk is still being chased down, but it's
+  been isolated to the *carrier's own* platform (their call dies internally
+  before ever generating a leg toward this stack) — not a bug in this repo.
 
 ## Pinned versions
 
@@ -38,10 +43,15 @@ Working knowledge for agents operating on this repo.
     release; `KAZOO_BOOTSTRAP=/kazoo-init.sh` (kazoo-apps only) runs
     provisioning. `config.ini.template` is envsubst'd.
   - `kazoo-freeswitch/` — FreeSWITCH **1.10.9 + mod_kazoo** built from source.
-    `entrypoint.sh` renders templates in
-    `templates/autoload_configs/` + `templates/sip_profiles/` from env, generates
-    a self-signed `wss.pem`, ensures `epmd`, execs FreeSWITCH. `modules.conf`
-    controls the build.
+    `entrypoint.sh` renders templates in `templates/autoload_configs/` from
+    env, generates a self-signed `wss.pem`, ensures `epmd`, execs FreeSWITCH.
+    `modules.conf` controls the build. **There is deliberately no
+    `templates/sip_profiles/` and no local `autoload_configs/sofia.conf.xml`**
+    (the Dockerfile actively deletes the vendor tree's copy of the latter) —
+    the `sipinterface_1` SIP profile is served dynamically by ecallmgr instead
+    of read from a file on disk; see "SIP profile serving & carrier trunk
+    registration" below. Do not re-add either without understanding why they
+    were removed.
   - `kamailio/` — kamailio 5.5.7 with PostgreSQL (not KazooDB). Entrypoint
     patches `local.cfg` substdefs, seeds PG role/db/schema from the initdb dump,
     seeds the dispatcher, injects `advertise` on UDP/TCP listeners.
@@ -49,7 +59,11 @@ Working knowledge for agents operating on this repo.
 - `charts/kazoo/` — Kubernetes chart mirroring the compose stack (single-replica
   StatefulSets for the data plane, Deployments for the app plane). See the
   Helm chart section below.
-- `README.md` — placeholder; do not assume content.
+- `README.md` — user-facing docs for the two things that are configured
+  live (via Crossbar/`sup`) rather than through the chart: external
+  SIP/RTP IP assignment and carrier trunk registration. Kept deliberately
+  generic (no real IPs/carrier details) — this file (`AGENTS.md`) is where
+  the concrete mechanism and gotchas live.
 
 ## How the stack wires together (critical coupling)
 
@@ -90,6 +104,117 @@ Shared values that everything hangs on (real values live in `.env`):
   forever → every call fails **"All Servers Busy"**. This is what broke on a
   clean-slate DB and is now seeded idempotently by `kazoo-init.sh` →
   `ensure_ecallmgr_fs_nodes()` (so future clean-slate rebuilds self-heal).
+
+## SIP profile serving & carrier trunk registration (dynamic, ecallmgr-driven)
+
+This is the biggest architecture change since the original device-to-device
+milestone, so it gets its own section. Two related but separate things live
+here: (a) how the *SIP profile itself* is delivered to FreeSWITCH, and (b)
+how a *carrier trunk that requires registration* (rather than IP-ACL trust)
+gets set up. README.md has the generic how-to; this section has the why and
+the gotchas.
+
+### Version matters: this is kazoo-classic, not upstream 2600hz/kazoo
+
+`kazoo-core` builds from `kazoo-classic/kazoo` release tags (`KAZOO_RELEASE_TAG`
+in `images/kazoo-core/Dockerfile`), **not** `2600hz/kazoo` master. The two have
+diverged on exactly this mechanism: on `2600hz/kazoo` master,
+`ecallmgr_fs_gateways:get/0` (the module that turns resource-gateway docs into
+FreeSWITCH gateway XML) has **zero callers anywhere in the codebase** — it's
+orphaned. On this repo's actual `kazoo-classic` tag, the equivalent module
+(`ecallmgr_fs_config.erl`'s `default_sip_profiles/1`) still calls it directly.
+**Always verify against the actual pinned `kazoo-classic` tag's source, not
+upstream master** — they can behave differently on exactly the kind of thing
+you'd naively "look up in the Kazoo docs" for.
+
+### Why the SIP profile is served dynamically instead of from a file
+
+FreeSWITCH's XML core resolves a named `<configuration>` section (like
+`sofia.conf`) from its local static file tree *first*; it only calls out to a
+registered "fetch" handler (here, `mod_kazoo`'s binding into ecallmgr) if that
+section is **entirely absent** locally — not merely incomplete. A local
+`sofia.conf.xml` that still exists, even with an empty `<profiles>` block,
+fully satisfies the lookup and the dynamic fetch is never invoked. So to make
+ecallmgr the source of truth, the Dockerfile has to actively `rm` both the
+vendor tree's `autoload_configs/sofia.conf.xml` *and* the local
+`sip_profiles/` dir (see "Layout" above) — not just decline to add our own
+version, since the vendor's copy would otherwise win.
+
+The consequence: `ecallmgr` becomes the **sole** source for the entire
+`sipinterface_1` profile (every setting, not just the ones you care about),
+with no static-file fallback. `system_config/ecallmgr.default.fs_profiles.
+sipinterface_1.Settings` must be a **complete** settings object — every
+`<param>` the old static `sip_profiles/sipinterface_1.xml` used to have,
+reproduced exactly (see git history for the deleted file's last content if
+you need the full reference list). A partial object doesn't merge with
+sensible defaults for the parts you left out; whatever isn't in that JSON
+object simply isn't in the profile FreeSWITCH gets.
+
+Two flags gate this, both on `system_config/ecallmgr`:
+- **`sofia_conf`** — without it, the fetch handler pattern-matches
+  `'true' = kapps_config:is_true(...)` and just fails closed (caught,
+  replies "not found"); FreeSWITCH then silently keeps whatever it already
+  had. No error visible in FreeSWITCH's own logs — the rejection happens
+  entirely on ecallmgr's side.
+- **`process_gateways`** — separately gates whether `Gateways` (built from
+  `ecallmgr_fs_gateways:get/0`, which reads the `sip_auth` and `offnet`
+  couch DBs) gets included in the served profile at all.
+
+### Registering a carrier trunk (`register: true` on a resource gateway)
+
+Kazoo resources support `"register": true` on a gateway object for carriers
+that authenticate via SIP REGISTER rather than a static IP allow-list — no
+external registration proxy needed, contrary to what you might assume from
+first principles (Kazoo *does* support this natively, it's just gated behind
+`process_gateways` and barely documented). Crossbar's `cb_resources.erl`
+handles a `register: true` + `enabled: true` gateway on an **account-level**
+resource by aggregating a copy of the resource doc into the `sip_auth`
+database (that's what `ecallmgr_fs_gateways:get/0` actually reads) and firing
+a `reload_gateways` AMQP event.
+
+**Gotcha that will burn you**: `reload_gateways`'s handler
+(`ecallmgr_fs_node:handle_reload_gateways/2`) checks the `process_gateways`
+flag **at the moment the event is handled**, not when it was published. If
+you save the resource *before* `process_gateways` is already `true`, the
+event fires and is silently swallowed — flipping the flag afterwards does
+**not** retroactively trigger anything. You must save/re-save the resource
+(any no-op edit works) *after* `process_gateways` is already on, to get a
+fresh event that actually does something. If a registration mysteriously
+never appears despite both flags being set, this is the first thing to check.
+
+### Verifying a registration & general ESL/`fs_cli` access
+
+`fs_cli` lives at `/usr/local/freeswitch/bin/fs_cli` in the image (built by
+`make install`, copied wholesale) — it's not on `$PATH`, which reads as
+"missing" if you only try the bare command name. The event socket
+(`autoload_configs/event_socket.conf.xml`) is scoped to `loopback.auto`, so
+it's reachable via `kubectl exec`/`docker exec` into the pod itself, not from
+other pods or nodes:
+
+```
+fs_cli -H 127.0.0.1 -P 8021 -p ClueCon -x "sofia status gateway <resource-id>-0"
+```
+
+A healthy trunk shows `State  REGED`. (Historical note: this ACL used to be
+set to `"any"`, which isn't a real named ACL anywhere in this config tree —
+FreeSWITCH's ACL lookup fails closed on an unresolvable name, so it silently
+denied *every* connection including loopback, making `fs_cli` look totally
+broken. `mod_event_socket` is not ecallmgr's real control channel regardless
+— that's `mod_kazoo` over `KAZOO_PORT`/dist, confirmed by `kazoo_node.c`
+bgexec log lines — so this ACL only ever mattered for manual debugging.)
+
+### XML-comment gotcha (crash-loops the whole pod)
+
+**XML comments must never contain a literal `--` anywhere in their body**,
+not just at the open/close delimiters — not even as an em-dash-style prose
+separator. FreeSWITCH's XML parser fails the *entire* aggregated config tree
+on this with a cryptic `Cannot Initialize [error near line N]: unclosed
+<!--`, where `N` is a line number in the fully-expanded/included document,
+not necessarily anywhere near the actual offending file — and FreeSWITCH
+won't start at all, crash-looping the pod. Use `;` or plain sentence breaks
+in XML comments in this repo, never `--`. (This shipped and crash-looped
+production for real during this work — grep any new/edited `templates/**/*.xml`
+comment for a bare `--` before it goes out.)
 
 ## CouchDB (data plane)
 
@@ -259,6 +384,20 @@ Shared values that everything hangs on (real values live in `.env`):
   `monsterUi.crossbarApiUrl` wins → else
   `<scheme>://<kazooCore.httpRoute.hostname>/v2` when that route is enabled →
   else `http://localhost:8000/v2`.
+- **No `extSipIP`/`extRtpIP` values** — removed along with the static SIP
+  profile file (see "SIP profile serving..." above); the externally-advertised
+  SIP/RTP address is now set live via `system_config/ecallmgr`, not a chart
+  value or container env var. `NOTES.txt` points at that instead.
+- **Every service's probes use a `startupProbe`**, not flat
+  `initialDelaySeconds` on readiness/liveness. The old pattern (e.g.
+  `initialDelaySeconds: 60`) sized the delay for the worst-case boot, so a
+  normal-speed boot paid that full fixed delay on every redeploy regardless.
+  The current pattern: a `startupProbe` (same check, short `periodSeconds`,
+  large `failureThreshold` for runway) gates readiness/liveness until the
+  process is actually up, and readiness/liveness themselves carry no
+  `initialDelaySeconds` and a small `failureThreshold` (fast real-failure
+  detection once startup is confirmed). Apply this same shape to any new
+  service template rather than reintroducing flat delays.
 - Render check: `helm lint charts/kazoo` and `helm template kazoo charts/kazoo`
   (20 manifests default: 8 Services incl. headless, 5 Deployments, 3
   StatefulSets, 3 PVCs, 1 Secret; +2 HTTPRoutes when any `<comp>.httpRoute`
@@ -280,7 +419,9 @@ Shared values that everything hangs on (real values live in `.env`):
 |---|---|
 | FS config render + env | `images/kazoo-freeswitch/entrypoint.sh` |
 | mod_kazoo dist settings (cookie/nodename/port, legacy-events) | `images/kazoo-freeswitch/templates/autoload_configs/kazoo.conf.xml` |
-| SIP profile (ext-sip/rtp advertise, codecs, context) | `images/kazoo-freeswitch/templates/sip_profiles/sipinterface_1.xml` |
+| Removes the local `sofia.conf.xml`/`sip_profiles` so the profile below is dynamic | `images/kazoo-freeswitch/Dockerfile` |
+| SIP profile (ext-sip/rtp advertise, codecs, context) — **live config, not a file** | `system_config/ecallmgr.default.fs_profiles.sipinterface_1.Settings` (Crossbar/`sup`; see README.md + the section above) |
+| ESL access (fs_cli via loopback only) | `images/kazoo-freeswitch/templates/autoload_configs/event_socket.conf.xml` |
 | Build-time modules | `images/kazoo-freeswitch/modules.conf` |
 | kamailio config secrets/advertise/dispatcher seeding | `images/kamailio/entrypoint.sh` |
 | node bootstrap + `fs_nodes` seeding + master account | `images/kazoo-core/kazoo-init.sh` |
@@ -340,8 +481,10 @@ Shared values that everything hangs on (real values live in `.env`):
    master build double-frees. Also **pinned**: FS is `1.10.9` (newer crashes on
    kazoo-classic AMQP).
 7. **Console/tooling gotchas** — no jq/python3 in the core image (rockylinux,
-   curl-only); FS container has no bash (use `sh -c`). `fs_cli` ESL is locked
-   down even to loopback on some configs; prefer logs/pcaps/sup for diagnosis.
+   curl-only); FS container has no bash (use `sh -c`). `fs_cli` binary exists
+   at `/usr/local/freeswitch/bin/fs_cli` but isn't on `$PATH`; the event
+   socket ACL is scoped to `loopback.auto` (see "SIP profile serving..."
+   above for the history of why it used to silently deny everyone).
 8. **kamailio binds all interfaces by default** — the entrypoint now defaults
    `BIND_IP=0.0.0.0` (all IPv4) instead of `hostname -i`'s first address:
    dual-stack k8s pods list the intended-but-not-assignable IPv6 first on a
@@ -395,11 +538,21 @@ point an alias/wrapper at the `docker`/`docker.exe` binary first.
 
 ## Open threads / next steps
 
-- Run the actual `admin` ↔ `tester` call and verify RTP/audio + CDR.
+- **Inbound DID delivery through the registered carrier trunk fails** — traced
+  conclusively (via the carrier's own SIP trace + CDRs) to their platform
+  refusing the call internally before ever generating a leg toward this
+  stack; confirmed not a network/firewall/routing issue on our side (an
+  external SIP probe straight at the advertised SIP port gets a correct
+  response). Nothing further to do here from this repo's side until the
+  carrier's own resource/registrar-lookup issue is found.
+- **Voicemail/prompt playback is broken**, unrelated to the trunk work:
+  `playback(prompt://...)` fails with `Invalid file format [prompt]`,
+  preceded by `kazoo_fetch_agent.c: No languages XML erlang handler
+  currently available`. `mod_shout`/`mod_native_file`/`mod_sndfile` all load
+  fine, so it's specifically the dynamic language/prompt-XML resolution path
+  (part of `mod_kazoo`) that isn't coming up — not investigated further yet.
 - Automate device/account provisioning (currently manual couch edits) so a
   clean-slate rebuild is fully scripted (`kazoo-init.sh` is the right home).
-- Live-cluster validation of `charts/kazoo` (needs GHCR images pushed + public
-  or imagePullSecrets, then `helm install kazoo charts/kazoo`).
 - Multi-node/K8s growth: CouchDB cluster + zone placement, HAProxy/edge story
   (the chart is currently single-replica per data service).
 - Investigate whether FS ever needs its own AMQP connection (the "zero rabbit
