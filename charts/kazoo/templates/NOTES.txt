@@ -30,7 +30,10 @@ Phones must reach kamailio at exactly the address it advertises in its SIP
 headers, or registration and call teardown silently fail:
   * kamailio.service.type=LoadBalancer + kamailio.advertiseIP=<LB DNS/IP>
   * freeswitch.service.type=LoadBalancer + freeswitch.service.includeRtp=true
-    + freeswitch.extSipIP=<same LB DNS/IP> for the RTP media path
+    + set ext-sip-ip/ext-rtp-ip (same LB DNS/IP) for the RTP media path via
+      system_config/ecallmgr's fs_profiles.sipinterface_1.Settings (Crossbar
+      API or sup) -- this is no longer a Helm value, see
+      images/kazoo-freeswitch/Dockerfile for why.
 Both default to ClusterIP (in-cluster only) until you set these.
 
 ## 5. Optional: Gateway API HTTPRoutes

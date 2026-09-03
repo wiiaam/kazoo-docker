@@ -15,12 +15,6 @@ set -euo pipefail
 : "${RABBIT_PASS:?RABBIT_PASS must be set}"
 
 
-DEFAULT_LOCAL_IP='$${local_ip_v4}'
-EXT_SIP_IP="${EXT_SIP_IP:-$DEFAULT_LOCAL_IP}"
-# Address advertised in SDP for RTP. Must be reachable by the remote phone:
-# the machine hosting Docker Desktop, with the RTP port range published to it.
-# Falls back to DEFAULT_LOCAL_IP
-EXT_RTP_IP="${EXT_RTP_IP:-$DEFAULT_LOCAL_IP}"
 # Must be freeswitch@<dotted fqdn>: Erlang long-name dist (shortname=false)
 # requires a dot in the host portion, and kazoo's kz_dist.erl special-cases a
 # node literally named "freeswitch". Compose sets `hostname:` to a dotted
@@ -33,7 +27,6 @@ KAZOO_PORT="${KAZOO_PORT:-8031}"
 EVENT_BIND_IP="${EVENT_BIND_IP:-0.0.0.0}"
 EVENT_PORT="${EVENT_PORT:-8021}"
 SIP_PORT="${SIP_PORT:-11000}"
-TLS_SIP_PORT="${TLS_SIP_PORT:-11001}"
 RTP_START_PORT="${RTP_START_PORT:-16384}"
 RTP_END_PORT="${RTP_END_PORT:-32768}"
 FS_USER="${FS_USER:-freeswitch}"
@@ -59,12 +52,9 @@ render() {
          -e "s/KAZOO_NODENAME/${KAZOO_NODENAME}/g" \
          -e "s/EVENT_BIND_IP/${EVENT_BIND_IP}/g" \
          -e "s/EVENT_PORT/${EVENT_PORT}/g" \
-         -e "s/EXT_SIP_IP/${EXT_SIP_IP}/g" \
-         -e "s/TLS_SIP_PORT/${TLS_SIP_PORT}/g" \
          -e "s/SIP_PORT/${SIP_PORT}/g" \
          -e "s/RTP_START_PORT/${RTP_START_PORT}/g" \
          -e "s/RTP_END_PORT/${RTP_END_PORT}/g" \
-         -e "s/EXT_RTP_IP/${EXT_RTP_IP}/g" \
          "${FS_CONFIG}/autoload_configs/kazoo.conf.xml" \
          "${FS_CONFIG}/autoload_configs/event_socket.conf.xml" \
          "${FS_CONFIG}/autoload_configs/switch.conf.xml"
@@ -73,14 +63,11 @@ render() {
 echo "=================================================="
 echo " kazoo-docker-freeswitch startup"
 echo "=================================================="
-echo " > EXT_SIP_IP          : ${EXT_SIP_IP}"
 echo " > KAZOO_NODENAME      : ${KAZOO_NODENAME}"
 echo " > KAZOO_COOKIE        : ${ERLANG_COOKIE}"
 echo " > KAZOO_PORT (erlang) : ${KAZOO_PORT}"
 echo " > EVENT_BIND_IP/PORT  : ${EVENT_BIND_IP}:${EVENT_PORT} (ESL)"
 echo " > SIP_PORT            : ${SIP_PORT}"
-echo " > TLS_SIP_PORT        : ${TLS_SIP_PORT}"
-echo " > EXT_RTP_IP          : ${EXT_RTP_IP}"
 echo " > RTP_START/END_PORT  : ${RTP_START_PORT}-${RTP_END_PORT}"
 echo " > KZ_AMQP_HOST/PORT   : ${KZ_AMQP_HOST}:${KZ_AMQP_PORT}"
 echo " > FS_CONFIG           : ${FS_CONFIG}"

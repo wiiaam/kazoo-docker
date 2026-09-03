@@ -64,14 +64,6 @@ spec:
               value: {{ .Values.freeswitch.rtpStartPort | quote }}
             - name: RTP_END_PORT
               value: {{ .Values.freeswitch.rtpEndPort | quote }}
-            {{- if .Values.freeswitch.extSipIP }}
-            - name: EXT_SIP_IP
-              value: {{ .Values.freeswitch.extSipIP | quote }}
-            {{- end }}
-            {{- if .Values.freeswitch.extRtpIP }}
-            - name: EXT_RTP_IP
-              value: {{ .Values.freeswitch.extRtpIP | quote }}
-            {{- end }}
           ports:
             - name: sip-udp
               containerPort: {{ .Values.freeswitch.sipPort }}
