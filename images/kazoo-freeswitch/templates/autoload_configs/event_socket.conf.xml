@@ -6,11 +6,11 @@
         <param name="password" value="ClueCon"/>
         <!-- ecallmgr's actual control channel is mod_kazoo (KAZOO_PORT,
              kazoo.conf.xml), confirmed by kazoo_node.c bgexec/log lines in
-             the FreeSWITCH logs -- this generic ESL socket is unused by
+             the FreeSWITCH logs; this generic ESL socket is unused by
              Kazoo itself and exists only for ad-hoc fs_cli debugging via
              `kubectl exec`. "any" is not a real named ACL (nothing defines
              one), so it silently denied every connection including
-             loopback -- restrict to the real loopback.auto ACL FreeSWITCH
+             loopback; restrict to the real loopback.auto ACL FreeSWITCH
              creates automatically, which is also all fs_cli-via-exec needs. -->
         <param name="apply-inbound-acl" value="loopback.auto"/>
     </settings>
