@@ -37,20 +37,24 @@ spec:
                   name: {{ include "kazoo.secret.name" . }}
                   key: rabbitPass
           {{- include "kazoo.containerPorts" .Values.rabbitmq.service.ports | nindent 10 }}
+          startupProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 55
           readinessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
-            initialDelaySeconds: 60
             periodSeconds: 10
             timeoutSeconds: 10
-            failureThreshold: 12
+            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
-            initialDelaySeconds: 90
             periodSeconds: 20
             timeoutSeconds: 10
-            failureThreshold: 9
+            failureThreshold: 3
           volumeMounts:
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq

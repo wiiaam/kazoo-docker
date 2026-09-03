@@ -46,20 +46,24 @@ spec:
               value: {{ .Values.monsterUi.apiUrl | quote }}
             {{- end }}
           {{- include "kazoo.containerPorts" .Values.monsterUi.service.ports | nindent 10 }}
+          startupProbe:
+            exec:
+              command: ["/bin/sh", "-c", "wget -qO- http://127.0.0.1/ping >/dev/null || exit 1"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 40
           readinessProbe:
             exec:
               command: ["/bin/sh", "-c", "wget -qO- http://127.0.0.1/ping >/dev/null || exit 1"]
-            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 12
+            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["/bin/sh", "-c", "wget -qO- http://127.0.0.1/ping >/dev/null || exit 1"]
-            initialDelaySeconds: 20
             periodSeconds: 20
             timeoutSeconds: 5
-            failureThreshold: 9
+            failureThreshold: 3
           volumeMounts:
             {{- if .Values.shared.enabled }}
             - name: shared

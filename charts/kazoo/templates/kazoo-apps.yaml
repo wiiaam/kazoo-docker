@@ -91,20 +91,24 @@ spec:
             - name: FS_NODE_NAME
               value: {{ .Values.freeswitch.nodeName | quote }}
           {{- include "kazoo.containerPorts" .Values.kazooCore.service.ports | nindent 10 }}
+          startupProbe:
+            exec:
+              command: ["/opt/kazoo/bin/sup", "-n", "kazoo_apps", "kz_nodes", "status"]
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 42
           readinessProbe:
             exec:
               command: ["/opt/kazoo/bin/sup", "-n", "kazoo_apps", "kz_nodes", "status"]
-            initialDelaySeconds: 90
             periodSeconds: 15
             timeoutSeconds: 10
-            failureThreshold: 20
+            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["/opt/kazoo/bin/sup", "-n", "kazoo_apps", "kz_nodes", "status"]
-            initialDelaySeconds: 120
             periodSeconds: 30
             timeoutSeconds: 10
-            failureThreshold: 10
+            failureThreshold: 3
           volumeMounts:
             - name: shared
               mountPath: /shared

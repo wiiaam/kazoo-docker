@@ -92,20 +92,24 @@ spec:
             - name: hep-config
               mountPath: /etc/heplify
           {{- end }}
+          startupProbe:
+            tcpSocket:
+              port: 5060
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 42
           readinessProbe:
             tcpSocket:
               port: 5060
-            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 12
+            failureThreshold: 3
           livenessProbe:
             tcpSocket:
               port: 5060
-            initialDelaySeconds: 20
             periodSeconds: 20
             timeoutSeconds: 5
-            failureThreshold: 9
+            failureThreshold: 3
         {{- if .Values.hepCapture.enabled }}
         - name: heplify
           image: {{ .Values.hepCapture.image }}

@@ -59,18 +59,22 @@ spec:
                 secretKeyRef:
                   name: {{ include "kazoo.secret.name" . }}
                   key: couchPass
+          startupProbe:
+            exec:
+              command: ["/opt/kazoo/bin/sup", "-n", "ecallmgr", "kz_nodes", "status"]
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 42
           readinessProbe:
             exec:
               command: ["/opt/kazoo/bin/sup", "-n", "ecallmgr", "kz_nodes", "status"]
-            initialDelaySeconds: 90
             periodSeconds: 15
             timeoutSeconds: 10
-            failureThreshold: 20
+            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["/opt/kazoo/bin/sup", "-n", "ecallmgr", "kz_nodes", "status"]
-            initialDelaySeconds: 120
             periodSeconds: 30
             timeoutSeconds: 10
-            failureThreshold: 10
+            failureThreshold: 3
 {{- end }}

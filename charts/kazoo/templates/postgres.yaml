@@ -42,20 +42,24 @@ spec:
                   name: {{ include "kazoo.secret.name" . }}
                   key: postgresPass
           {{- include "kazoo.containerPorts" .Values.postgres.service.ports | nindent 10 }}
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.secrets.postgresUser | quote }}, "-d", "kazoo"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 45
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", {{ .Values.secrets.postgresUser | quote }}, "-d", "kazoo"]
-            initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 12
+            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", {{ .Values.secrets.postgresUser | quote }}, "-d", "kazoo"]
-            initialDelaySeconds: 30
             periodSeconds: 20
             timeoutSeconds: 5
-            failureThreshold: 9
+            failureThreshold: 3
           volumeMounts:
             # Mount the parent dir, NOT /var/lib/postgresql/data: a fresh
             # ext4 volume has a root-level lost+found which makes initdb
