@@ -129,8 +129,6 @@ fi
 
 FREESWITCH_ARGS="-nonat -conf ${FS_CONFIG} -run /var/run/freeswitch -db ${FS_HOME}/db -log /var/log/freeswitch -cache ${FS_HOME}/cache -sounds /usr/share/kazoo-freeswitch/sounds -storage ${FS_HOME}/storage"
 
-rm /etc/kazoo/freeswitch/sip_profiles/ -r
-
 echo ""
 echo "=================================================="
 echo " Starting FreeSWITCH"
