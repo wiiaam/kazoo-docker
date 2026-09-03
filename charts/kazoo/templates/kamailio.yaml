@@ -7,6 +7,8 @@ metadata:
     {{- include "kazoo.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.kamailio.replicaCount }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "kazoo.selectorLabels" . | nindent 6 }}
